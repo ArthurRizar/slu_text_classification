@@ -1035,7 +1035,7 @@ def main(_):
 
             if eval_acc_value > best_acc_value:
                 best_acc_value = eval_acc_value
-                saver.save(sess, FLAGS.output_dir+'/model', global_step=train_step)
+                saver.save(sess, FLAGS.output_dir+'/checkpoints/model', global_step=train_step)
 
             
 
