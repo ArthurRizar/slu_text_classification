@@ -1,21 +1,18 @@
-#coding:utf-8
-###################################################
-# File Name: text_rnn.py
-# Author: Meng Zhao
-# mail: @
-# Created Time: 2018年03月27日 星期二 17时11分59秒
-#=============================================================
-#TextRNN: 1. embeddding layer, 2.Bi-LSTM layer, 3.concat output, 4.FC layer, 5.softmax
+# -*- coding:utf-8 -*-
+
 import sys
-import numpy as np
 import tensorflow as tf
+import numpy as np
+import tensorflow.contrib as tf_contrib
+
 
 sys.path.append('../')
+
+from tensorflow.python.ops import array_ops
 from tensorflow.contrib import rnn
 
 from setting import *
 from common.layers.embedding import Embedding
-
 
 def highway(input_, num_outputs, num_layers=1, bias=-2.0, f=tf.nn.relu, scope='Highway'):
     '''
@@ -38,90 +35,129 @@ def highway(input_, num_outputs, num_layers=1, bias=-2.0, f=tf.nn.relu, scope='H
 
 
 
-class TextRNN:
-    def __init__(self, seq_len, num_classes, vocab_size, embed_size, POS_onehot_size, decay_steps=1000, decay_rate=0.9, use_subword=False,
-                 embedding_table=None, l2_reg_lambda=0.0, learning_rate=0.001, initializer=tf.random_normal_initializer(stddev=0.1)):
-        """init all hyperparameter here"""
-        # set hyperparamter
-        self.num_classes = num_classes
-        #self.batch_size = batch_size
-        self.seq_len = seq_len
+class TextRNN(object):
+    '''
+    A cnn for text classification, following by a convolution, max-pooling, full-connection and softmax
+    '''
+    def __init__(self, seq_len, num_classes, vocab_size, embed_size, filter_sizes, num_filters, embedding_table=None, 
+            l2_reg_lambda=0.0, decay_steps=1000, decay_rate=0.9, clip_gradients=5.0, learning_rate=1e-4):
+        '''
+        @brief:
+        @param: seq_length, sequence length
+                num_classes, num of classes
+                vocab_size, size of word vocab  
+                embe_size, size of embedding
+                filter_sizes, size of each filter , a list, like [3, 4, 5]
+                num_filters, num of filter
+                l2_reg_lambda, scale of l2 regularization
+
+        '''
         self.vocab_size = vocab_size
         self.embed_size = embed_size
-        self.hidden_size = embed_size
-        self.learning_rate = learning_rate
-        self.initializer = initializer
-        self.l2_reg_lambda = l2_reg_lambda
         self.embedding_table = embedding_table
-        self.num_sampled = 20
-        self.POS_onehot_size = POS_onehot_size
+        self.num_classes = num_classes
+        self.num_filters = num_filters
+        self.filter_sizes = filter_sizes
+        self.clip_gradients = clip_gradients
+        self.learning_rate = learning_rate
 
-
-        # add placeholder (X,label)
-        self.input_x = tf.placeholder(tf.int32, [None, self.seq_len], name="input_x")  # X
-        self.input_POS = tf.placeholder(tf.int32, [None, self.seq_len], name='input_POS')
-        self.input_y = tf.placeholder(tf.float32, [None, self.num_classes], name="input_y")  # y [None,num_classes]
-        self.dropout_keep_prob = tf.placeholder(tf.float32, name="dropout_keep_prob")
-        self.is_training = tf.placeholder(tf.bool, None, name='is_training')
-
+        #placeholder
+        self.input_x = tf.placeholder(tf.int32, [None, None], name='input_x')        # shape: batch_size * seq_len
+        self.input_POS = tf.placeholder(tf.int32, [None, None], name='input_POS')
+        self.input_y = tf.placeholder(tf.float32, [None, num_classes], name='input_y')    # shape: batch_size * num_class
+        
+        self.dropout_keep_prob = tf.placeholder(tf.float32, name='dropout_keep_prob')          # dropout keep probability  
+        self.is_training = tf.placeholder(tf.bool, None, name='is_training') 
+        
         self.input_sparse_x = tf.sparse_placeholder(tf.int32, name='input_sparse_x')
-
-
+        #regularization 
+        l2_loss = tf.constant(0.0)
+        
         self.global_step = tf.Variable(0, trainable=False, name="Global_Step")
-        self.epoch_step = tf.Variable(0,trainable=False,name="Epoch_Step")
-        self.epoch_increment = tf.assign(self.epoch_step, tf.add(self.epoch_step, tf.constant(1)))
         self.decay_steps, self.decay_rate = decay_steps, decay_rate
 
-        self.instantiate_weights()
-        self.logits, self.predictions = self.inference() #[None, self.label_size]. main computation graph is here.
-        self.loss = self.get_loss() #-->self.get_loss_nce()
-        self.train_op = self.train()
+        #embedding layer
+        with tf.device('/cpu:0'):
+            if embedding_table is None:
+                self.W = tf.Variable(tf.random_uniform([vocab_size, self.embed_size], -1, 1), name='W')
+            else:
+                self.W = tf.Variable(embedding_table, name='W')
+    
+            self.embedded_words = tf.nn.embedding_lookup(self.W, self.input_x)
 
+            self.embedded_word_expand = tf.expand_dims(self.embedded_words, -1)
+         
+        self.h_flat = self.rnn_attn_layer()
+
+        '''
+        #add highway
+        with tf.name_scope('highway'):
+            self.h_highway = highway(self.h_pool_flat, self.h_pool_flat.get_shape()[1], 1, 0, tf.nn.tanh)
+            self.h_pool_flat = self.h_highway
+        '''
+
+        #add dropout 
+        with tf.name_scope('dropout'):
+            #self.h_drop = tf.nn.dropout(self.h_highway, self.dropout_keep_prob)
+            self.h_drop = tf.nn.dropout(self.h_flat, self.dropout_keep_prob)
+
+
+        #final (unnormalized) scores and predictions
+        with tf.name_scope('output'):
+            num_filters_total = sum(self.num_filters)
+            W = tf.get_variable(
+                    'W',
+                    shape=[self.embed_size*2, num_classes],
+                    initializer=tf.contrib.layers.variance_scaling_initializer())
+                    #initializer=tf.random_normal_initializer(stddev=0.1))
+                    #initializer=tf.contrib.layers.xavier_initializer())
+            b = tf.Variable(tf.constant(0.1, shape=[num_classes]), name='b')
+            #l2_loss += tf.nn.l2_loss(W)
+            #l2_loss += tf.nn.l2_loss(b)
+            #l2_loos = tf.add_n([tf.nn.l2_loss(v) for v in tf.trainable_variables()])
+            self.scores = tf.nn.xw_plus_b(self.h_drop, W, b, name='scores')
+            self.predictions = tf.argmax(self.scores, 1, name='predictions')
+
+        #calculate mean cross-entropy loss
+        with tf.name_scope('loss'):
+            losses = tf.nn.softmax_cross_entropy_with_logits(logits=self.scores, labels=self.input_y)
+            #losses = tf.reduce_mean(tf.square(self.scores - self.input_y))  #mse
+            #losses = -tf.reduce_mean(self.input_y * tf.log(tf.clip_by_value(tf.nn.softmax(self.scores), 1e-10, 1.0)))  
+            self.loss = tf.reduce_mean(losses) + l2_reg_lambda * l2_loss
+
+        #accuracy
         with tf.name_scope('accuracy'):
-            correct_prediction = tf.equal(self.predictions, tf.argmax(self.input_y, 1)) #tf.argmax(self.logits, 1)-->[batch_size]
-            self.accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32), name="Accuracy") # shape=()
-
-    def instantiate_weights(self):
-        """define all weights here"""
-        with tf.name_scope("embedding"): # embedding matrix
-            self.embedding_layer = Embedding(self.vocab_size, self.embed_size, self.POS_onehot_size, embedding_table=self.embedding_table)
-            self.embed_size += self.POS_onehot_size
-            self.hidden_size = self.embed_size
+            correct_predictions = tf.equal(self.predictions, tf.argmax(self.input_y, 1))
+            self.accuracy = tf.reduce_mean(tf.cast(correct_predictions, 'float'), name='accuracy')
 
 
-            self.W_projection = tf.get_variable("W_projection", shape=[self.hidden_size*2, self.num_classes], initializer=self.initializer) #[embed_size,label_size]
-            self.b_projection = tf.get_variable("b_projection", shape=[self.num_classes])       #[label_size]
-            
+        self.train_op = self.get_train_op()
 
 
-    def inference(self):
-        """main computation graph here: 1. embeddding layer, 2.Bi-LSTM layer, 3.concat, 4.FC layer 5.softmax """
-        #1.get emebedding of words in the sentence
-        self.embedded_words = self.embedding_layer.get_embedded_inputs(self.input_x, self.input_POS) #shape:[None,sentence_length, embed_size]
 
-
-        #2. Bi-lstm layer
-        # define lstm cess:get lstm cell output
-        lstm_fw_cell = rnn.BasicLSTMCell(self.hidden_size) #forward direction cell
-        lstm_bw_cell = rnn.BasicLSTMCell(self.hidden_size) #backward direction cell
+    def rnn_attn_layer(self):
+        # rnn layer
+        self.hidden_size = self.embed_size
+        #lstm_fw_cell = rnn.BasicLSTMCell(self.hidden_size) #forward direction cell
+        #lstm_bw_cell = rnn.BasicLSTMCell(self.hidden_size) #backward direction cell
+        lstm_fw_cell = rnn.GRUCell(self.hidden_size) #forward direction cell
+        lstm_bw_cell = rnn.GRUCell(self.hidden_size) #backward direction cell
         #lstm_fw_cell = rnn.LayerNormBasicLSTMCell(self.hidden_size) #forward direction cell
         #lstm_bw_cell = rnn.LayerNormBasicLSTMCell(self.hidden_size) #backward direction cell
         if self.dropout_keep_prob is not None:
-            #lstm_fw_cell = rnn.DropoutWrapper(lstm_fw_cell, input_keep_prob=self.dropout_keep_prob, output_keep_prob=self.dropout_keep_prob)
-            #lstm_bw_cell = rnn.DropoutWrapper(lstm_bw_cell, input_keep_prob=self.dropout_keep_prob, output_keep_prob=self.dropout_keep_prob)
-            lstm_fw_cell = rnn.DropoutWrapper(lstm_fw_cell, output_keep_prob=self.dropout_keep_prob)
-            lstm_bw_cell = rnn.DropoutWrapper(lstm_bw_cell, output_keep_prob=self.dropout_keep_prob)
+            lstm_fw_cell = rnn.DropoutWrapper(lstm_fw_cell, input_keep_prob=self.dropout_keep_prob, output_keep_prob=self.dropout_keep_prob)
+            lstm_bw_cell = rnn.DropoutWrapper(lstm_bw_cell, input_keep_prob=self.dropout_keep_prob, output_keep_prob=self.dropout_keep_prob)
+            #lstm_fw_cell = rnn.DropoutWrapper(lstm_fw_cell, output_keep_prob=self.dropout_keep_prob)
+            #lstm_bw_cell = rnn.DropoutWrapper(lstm_bw_cell, output_keep_prob=self.dropout_keep_prob)
+
         # bidirectional_dynamic_rnn: input: [batch_size, max_time, input_size]
         #                            output: A tuple (outputs, output_states)
         #                            where:outputs: A tuple (output_fw, output_bw) containing the forward and the backward rnn output `Tensor`.
-        outputs, _ = tf.nn.bidirectional_dynamic_rnn(lstm_fw_cell, lstm_bw_cell, self.embedded_words, dtype=tf.float32) #[batch_size,sequence_length,hidden_size] #creates a dynamic bidirectional recurrent neural network
-        print("outputs:===>", outputs) #outputs:(<tf.Tensor 'bidirectional_rnn/fw/fw/transpose:0' shape=(?, 5, 100) dtype=float32>, <tf.Tensor 'ReverseV2:0' shape=(?, 5, 100) dtype=float32>))
+        outputs, _ = tf.nn.bidirectional_dynamic_rnn(lstm_fw_cell, lstm_bw_cell, self.embedded_words, dtype=tf.float32)
+        output_rnn = tf.concat(outputs, axis=2)     #[batch_size, sequence_length, hidden_size*2]
 
-        # 3. concat 
-        output_rnn = tf.concat(outputs, axis=2) #[batch_size,sequence_length,hidden_size*2]
-        
-
-        attention_dim = 100
+        #attention layer
+        attention_dim = self.embed_size
         with tf.name_scope('attention'):
             '''
             self attention:
@@ -129,101 +165,64 @@ class TextRNN:
                 c_i = alpha_i * h_i
             '''
             attn_hidden_size = output_rnn.shape[2].value
+
             # attention mechanism
-            W = tf.Variable(tf.truncated_normal([attn_hidden_size, attention_dim],stddev=0.1), name="W_attn")
+            W = tf.Variable(tf.truncated_normal([attn_hidden_size, attention_dim], stddev=0.1), name="W_attn")
             b = tf.Variable(tf.random_normal([attention_dim], stddev=0.1), name="b_attn")
 
             v = tf.Variable(tf.random_normal([attention_dim], stddev=0.1), name="u_attn") # [attn_dim,]
-            u = tf.tanh(tf.matmul(tf.reshape(output_rnn, [-1, attn_hidden_size]), W) + tf.reshape(b, [1, -1])) #[batch_size, seq_len, attn_dim] 
-
-            uv = tf.matmul(u, tf.reshape(v, [-1, 1]))
-
-            exps = tf.reshape(tf.exp(uv), [-1, self.seq_len])
-            alphas = exps / tf.reshape(tf.reduce_sum(exps, 1), [-1, 1]) #softmax, get alpha
-            output_attn = tf.reduce_sum(output_rnn * tf.reshape(alphas, [-1, self.seq_len, 1]), 1)
-
-
-
-        self.output_rnn_last = output_attn
-        #self.output_rnn_last = tf.reduce_mean(output_rnn, axis=1) #[batch_size,hidden_size*2] #output_rnn_last=output_rnn[:,-1,:] ##[batch_size,hidden_size*2] #TODO
-        print("output_rnn_last:", self.output_rnn_last) # <tf.Tensor 'strided_slice:0' shape=(?, 200) dtype=float32>
-
-        #batch normalization
-        #self.output_rnn_last = tf.layers.batch_normalization(self.output_rnn_last, training=self.is_training)
-      
-        '''
-        #add highway
-        with tf.name_scope('highway'):
-            self.h_highway = highway(self.output_rnn_last, self.output_rnn_last.get_shape()[1], 1, 0, tf.nn.tanh, 'highway')
-            self.output_rnn_last = self.h_highway
-        '''
-
-        #add dropout 
-        with tf.name_scope('dropout'):
-            self.output_rnn_last = tf.nn.dropout(self.output_rnn_last, self.dropout_keep_prob)
-
-        #4. logits(use linear layer)
-        with tf.name_scope("output"): #inputs: A `Tensor` of shape `[batch_size, dim]`.  The forward activations of the input network.
-            #logits = tf.matmul(self.output_rnn_last, self.W_projection) + self.b_projection  # [batch_size,num_classes]
-            logits = tf.matmul(self.output_rnn_last, self.W_projection) + self.b_projection  # [batch_size,num_classes]
+            v_expand = tf.expand_dims(v, -1)
             
-            predictions = tf.argmax(logits, axis=1, name="predictions") #shape:[None,]
-        return logits, predictions
+            # u = tanh(wh)
+            u = tf.tanh(tf.tensordot(output_rnn, W, axes=1, name='Wh'))   # [batch_size, seq_len, attention_dim]
 
-    def get_loss(self,l2_lambda=0.0001):
-        with tf.name_scope("loss"):
-            #input: `logits` and `labels` must have the same shape `[batch_size, num_classes]`
-            #output: A 1-D `Tensor` of length `batch_size` of the same type as `logits` with the softmax cross entropy loss.
-            losses = tf.nn.softmax_cross_entropy_with_logits(labels=self.input_y, logits=self.logits);#sigmoid_cross_entropy_with_logits.#losses=tf.nn.softmax_cross_entropy_with_logits(labels=self.input_y,logits=self.logits)
-            #print("1.sparse_softmax_cross_entropy_with_logits.losses:",losses) # shape=(?,)
-            loss = tf.reduce_mean(losses)#print("2.loss.loss:", loss) #shape=()
-            l2_losses = tf.add_n([tf.nn.l2_loss(v) for v in tf.trainable_variables() if 'bias' not in v.name]) * l2_lambda
-            loss = loss + l2_losses
-        return loss
+            uv = tf.tensordot(u, v, axes=1, name='uv')           # [batch_size, seq_len]
 
-    def get_loss_nce(self,l2_lambda=0.0001): #0.0001-->0.001
-        """calculate loss using (NCE)cross entropy here"""
-        # Compute the average NCE loss for the batch.
-        # tf.nce_loss automatically draws a new sample of the negative labels each
-        # time we evaluate the loss.
+            #alphas  type1
+            #exps = tf.exp(uv - tf.reduce_max(uv, -1))
+            #alphas = exps / (tf.reduce_sum(exps, 1))             #softmax, get alpha , [batch_size, seq_len]
             
-        #labels = tf.reshape(self.input_y,[-1])               #[batch_size,1]------>[batch_size,]
-        labels = tf.expand_dims(tf.argmax(self.input_y, 1), 1)                   #[batch_size,]----->[batch_size,1]
-        loss = tf.reduce_mean( #inputs: A `Tensor` of shape `[batch_size, dim]`.  The forward activations of the input network.
-                tf.nn.nce_loss(weights=tf.transpose(self.W_projection),#[hidden_size*2, num_classes]--->[num_classes,hidden_size*2]. nce_weights:A `Tensor` of shape `[num_classes, dim].O.K.
-                               biases=self.b_projection,                 #[label_size]. nce_biases:A `Tensor` of shape `[num_classes]`.
-                               labels=labels,                 #[batch_size,1]. train_labels, # A `Tensor` of type `int64` and shape `[batch_size,num_true]`. The target classes.
-                               inputs=self.output_rnn_last,# [batch_size,hidden_size*2] #A `Tensor` of shape `[batch_size, dim]`.  The forward activations of the input network.
-                               num_sampled=self.num_sampled,  #scalar. 100
-                               num_classes=self.num_classes,partition_strategy="div"))  #scalar. 1999
-        l2_losses = tf.add_n([tf.nn.l2_loss(v) for v in tf.trainable_variables() if 'bias' not in v.name]) * l2_lambda
-        loss = loss + l2_losses
-        return loss
+            #alphas  type2
+            alphas = tf.nn.softmax(uv - tf.reduce_max(uv, -1, keep_dims=True))
+            
+            output_attn = tf.reduce_sum(output_rnn*tf.expand_dims(alphas, -1), 1)   # [batch_size, attn_hidden_size]
+            
+            print output_attn
 
-    def train(self):
+        return output_attn
+
+    def get_train_op(self):
         """based on the loss, use SGD to update parameter"""
-        learning_rate = tf.train.exponential_decay(self.learning_rate, self.global_step, self.decay_steps,self.decay_rate, staircase=True)
-        train_op = tf.contrib.layers.optimize_loss(self.loss, global_step=self.global_step,learning_rate=learning_rate, optimizer="Adam")
+        learning_rate = tf.train.exponential_decay(self.learning_rate, self.global_step, self.decay_steps,
+                                                   self.decay_rate, staircase=True)
+        self.learning_rate_=learning_rate
+        #noise_std_dev = tf.constant(0.3) / (tf.sqrt(tf.cast(tf.constant(1) + self.global_step, tf.float32))) #gradient_noise_scale=noise_std_dev
+        train_op = tf_contrib.layers.optimize_loss(self.loss, global_step=self.global_step,
+                                                   learning_rate=learning_rate, optimizer="Adam",clip_gradients=self.clip_gradients)
         return train_op
 
-#test started
-def test():
-    #below is a function test; if you use this for text classifiction, you need to tranform sentence to indices of vocabulary first. then feed data to the graph.
-    num_classes=10
-    learning_rate=0.01
-    decay_steps=1000
-    decay_rate=0.9
-    sequence_length=5
-    vocab_size=10000
-    embed_size=100
-    is_training=True
-    dropout_keep_prob=1#0.5
-    textRNN=TextRNN(sequence_length, num_classes, vocab_size, embed_size, learning_rate, decay_steps, decay_rate, is_training)
+
+
+
+
+if __name__ == '__main__':
+    textRNN = TextRNN(seq_len=20, num_classes=3, vocab_size=2000, embed_size=200, filter_sizes=[3, 4, 5], num_filters=[100, 100, 100], l2_reg_lambda=0.1)
     with tf.Session() as sess:
+        batch_size = 8
+        seq_len = 20
+        dropout_keep_prob = 0.5
         sess.run(tf.global_variables_initializer())
         for i in range(100):
-            input_x=np.zeros((batch_size,sequence_length)) #[None, self.sequence_length]
-            input_y=input_y=np.array([1,0,1,1,1,2,1,1]) #np.zeros((batch_size),dtype=np.int32) #[None, self.sequence_length]
-            loss,acc,predict,_=sess.run([textRNN.loss,textRNN.accuracy,textRNN.predictions,textRNN.train_op],feed_dict={textRNN.input_x:input_x,textRNN.input_y:input_y,textRNN.dropout_keep_prob:dropout_keep_prob})
-            print("loss:",loss,"acc:",acc,"label:",input_y,"prediction:",predict)
-#test()
+            # input_x should be:[batch_size, num_sentences,self.seq_len]
+            input_x = np.zeros((batch_size, seq_len)) #num_sentences
+            input_x[input_x > 0.5] = 1
+            input_x[input_x <= 0.5] = 0
+            input_y = np.matrix(
+                [[0, 1, 0], [0, 0, 1], [0, 1, 0], [0, 1, 0], [0, 1, 0], [1, 0, 0], [0, 1, 0], [0, 1, 0]])  # np.zeros((batch_size),dtype=np.int32) #[None, self.seq_len]
+            loss, acc, predict, _ = sess.run(
+                [textRNN.loss, textRNN.accuracy, textRNN.predictions, textRNN.train_op],
+                feed_dict={textRNN.input_x: input_x, textRNN.input_y: input_y,
+                           textRNN.dropout_keep_prob: dropout_keep_prob})
+            print("loss:", loss, "acc:", acc, "label:", input_y, "prediction:", predict)
+    print 'hello world'
+
