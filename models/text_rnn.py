@@ -153,7 +153,7 @@ class TextRNN(object):
         # bidirectional_dynamic_rnn: input: [batch_size, max_time, input_size]
         #                            output: A tuple (outputs, output_states)
         #                            where:outputs: A tuple (output_fw, output_bw) containing the forward and the backward rnn output `Tensor`.
-        outputs, _ = tf.nn.bidirectional_dynamic_rnn(lstm_fw_cell, lstm_bw_cell, self.embedded_words, dtype=tf.float32)
+        outputs, _ = tf.nn.bidirectional_dynamic_rnn(lstm_fw_cell, lstm_bw_cell, self.embedded_words, self.embedded_words.shape[1].value, dtype=tf.float32)
         output_rnn = tf.concat(outputs, axis=2)     #[batch_size, sequence_length, hidden_size*2]
 
         #attention layer
@@ -214,9 +214,10 @@ if __name__ == '__main__':
         sess.run(tf.global_variables_initializer())
         for i in range(100):
             # input_x should be:[batch_size, num_sentences,self.seq_len]
-            input_x = np.zeros((batch_size, seq_len)) #num_sentences
+            input_x = np.zeros((batch_size, seq_len+i)) #num_sentences
             input_x[input_x > 0.5] = 1
             input_x[input_x <= 0.5] = 0
+            print(np.shape(input_x))
             input_y = np.matrix(
                 [[0, 1, 0], [0, 0, 1], [0, 1, 0], [0, 1, 0], [0, 1, 0], [1, 0, 0], [0, 1, 0], [0, 1, 0]])  # np.zeros((batch_size),dtype=np.int32) #[None, self.seq_len]
             loss, acc, predict, _ = sess.run(
