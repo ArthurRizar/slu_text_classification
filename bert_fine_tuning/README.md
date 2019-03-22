@@ -24,8 +24,8 @@ python run_classifier.py \
   
   
   train.tsv:
-  sentence1\tlabel1
-  sentence2\tlabel2
+  sentence1\tlabel1<br>
+  sentence2\tlabel2<br>
   ....
   
   
