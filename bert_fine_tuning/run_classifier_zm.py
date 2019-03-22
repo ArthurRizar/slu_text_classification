@@ -232,7 +232,7 @@ class WeaverProcessor(DataProcessor):
 
 
     def get_labels(self):
-        with codecs.open('data/labels.txt', 'r', 'utf8') as fr:
+        with codecs.open('data/labels.tsv', 'r', 'utf8') as fr:
             labels = []
             for line in fr:
                 line = line.strip().lower()
