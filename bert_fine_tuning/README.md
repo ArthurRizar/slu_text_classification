@@ -1,5 +1,5 @@
-export BERT_BASE_DIR=/path/to/bert/uncased_L-12_H-768_A-12
-export GLUE_DIR=/path/to/glue
+export BERT_BASE_DIR=/path/to/bert/uncased_L-12_H-768_A-12<br>
+export GLUE_DIR=/path/to/glue<br>
 
 python run_classifier.py \
   --task_name=test \
@@ -16,21 +16,21 @@ python run_classifier.py \
   
   
   
-  labes.tsv:
-  label1
-  label2
-  lable3
-  ...
+  labes.tsv:<br>
+  label1<br>
+  label2<br>
+  lable3<br>
+  ...<br>
   
   
-  train.tsv:
+  train.tsv:<br>
   sentence1\tlabel1<br>
   sentence2\tlabel2<br>
   ....
   
   
-  test.tsv
-  (same format as train.tsv)
+  test.tsv<br>
+  (same format as train.tsv)<br>
   
-  dev.tsv:
-   (same format as train.tsv)
+  dev.tsv:<br>
+   (same format as train.tsv)<br>
