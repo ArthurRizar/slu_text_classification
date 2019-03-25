@@ -218,7 +218,7 @@ class DataProcessor(object):
 
 
 
-class WeaverProcessor(DataProcessor):
+class TestProcessor(DataProcessor):
     def get_train_examples(self, data_dir):
         """See base class."""
         return self._create_examples(
@@ -909,7 +909,7 @@ def main(_):
     tf.logging.set_verbosity(tf.logging.INFO)
 
     processors = {
-            "test": WeaverProcessor,
+            "test": TestProcessor,
     }
 
     tokenization.validate_case_matches_checkpoint(FLAGS.do_lower_case,
