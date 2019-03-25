@@ -236,7 +236,7 @@ class TestProcessor(DataProcessor):
 
 
     def get_labels(self, data_dir):
-        with codecs.open(os.path.join(data_dir, 'labels.txt'), 'r', 'utf8') as fr:
+        with codecs.open(os.path.join(data_dir, 'labels.tsv'), 'r', 'utf8') as fr:
             labels = []
             for line in fr:
                 line = line.strip().lower()
