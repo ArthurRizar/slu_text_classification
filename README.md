@@ -12,18 +12,18 @@ lable3
 ...
 
 train.tsv:
-sentence1\tlabel1
-sentence2\tlabel2
+sentence1\tlabel1<br>
+sentence2\tlabel2<br>
 ....
 
 test.tsv
-(same format as train.tsv)
+(same format as train.tsv)<br>
 
 dev.tsv:
-(same format as train.tsv)
+(same format as train.tsv)<br>
 
 
 # train
-cd example
-bash train_bert.sh
+cd example<br>
+bash train_bert.sh<br>
 
