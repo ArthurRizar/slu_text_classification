@@ -4,26 +4,26 @@ A tf classic style (session run and feed dictionary) bert training and evaluatin
 
 
 
-# data
-labes.tsv:
-label1
-label2
-lable3
+# data<br>
+labes.tsv:<br>
+label1<br>
+label2<br>
+lable3<br>
 ...
 
-train.tsv:
+train.tsv:<br>
 sentence1\tlabel1<br>
 sentence2\tlabel2<br>
 ....
 
-test.tsv
+test.tsv<br>
 (same format as train.tsv)<br>
 
-dev.tsv:
+dev.tsv:<br>
 (same format as train.tsv)<br>
 
 
-# train
+# train<br>
 cd example<br>
 bash train_bert.sh<br>
 
