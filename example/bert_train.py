@@ -25,6 +25,7 @@ import sys
 import random
 import datetime
 import codecs
+import shutil
 
 import numpy as np
 import tensorflow as tf
@@ -939,7 +940,8 @@ def main(_):
     label_list = processor.get_labels(FLAGS.data_dir)
     label_map = get_and_save_label_map(label_list, FLAGS.output_dir)
 
-
+    shutil.copy(FLAGS.vocab_file, FLAGS.output_dir)
+        
     tokenizer = tokenization.FullTokenizer(
             vocab_file=FLAGS.vocab_file, do_lower_case=FLAGS.do_lower_case)
 
