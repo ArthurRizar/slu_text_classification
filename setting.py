@@ -18,10 +18,8 @@ MODEL_DIR = BASE_DIR + '/example/runs/v' + VERSION
 
 
 #SEGMENT
-SEGMENT_APP_ID = 'zsovspqm'
-SEGMENT_URL= 'http://47.97.108.232:20003/term'
-#SEGMENT_URL= 'http://172.16.159.177:20001/term'   #正式环境分词
-SEGMENT_APP_SECRET = '4b1abe63deb7ee1117c8e386e7b16fae'
+SEGMENT_URL= 'http://127.0.0.1/segment'
+
 
 
 
