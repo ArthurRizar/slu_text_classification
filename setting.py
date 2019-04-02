@@ -25,12 +25,6 @@ SEGMENT_APP_SECRET = '4b1abe63deb7ee1117c8e386e7b16fae'
 
 
 
-#bert path
-INIT_CHECKPOINT = '/root/zhaomeng/google-BERT/chinese_L-12_H-768_A-12/bert_model.ckpt'
-VOCAB_FILE = '/root/zhaomeng/google-BERT/chinese_L-12_H-768_A-12/vocab.txt'
-BERT_CONFIG_FILE = '/root/zhaomeng/google-BERT/chinese_L-12_H-768_A-12/bert_config.json'
-
-
 
 
 #files path
