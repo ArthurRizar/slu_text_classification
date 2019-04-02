@@ -581,13 +581,11 @@ def inference(model, num_labels, is_training, labels):
         #print(is_training) 
         #exit()
         #new dropout type
-        keep_prob = 1.0
         def do_dropout():
-            keep_prob = 0.9
-            return 1
+            return 0.9
         def do_not_dropout():
-            return 1
-        tf.cond(is_training, do_dropout, do_not_dropout)
+            return 1.0
+        keep_prob = tf.cond(is_training, do_dropout, do_not_dropout)
         output_layer = tf.nn.dropout(output_layer, keep_prob=keep_prob)
 
 
