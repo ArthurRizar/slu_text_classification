@@ -145,11 +145,11 @@ if __name__ == '__main__':
     config['model_pb_path'] = MODEL_DIR + '/checkpoints/frozen_model.pb'
 
     pred_instance = Evaluator(config)
-    pred_instance.evaluate('班车报表')
+    pred_instance.evaluate('测试')
 
 
     application = tornado.web.Application([
-            (r"/qa_intent", PredictHttpServer, 
+            (r"/intent", PredictHttpServer, 
             dict(pred_instance=pred_instance,)
             ),
         ])
