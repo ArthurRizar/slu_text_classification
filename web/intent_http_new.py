@@ -207,10 +207,10 @@ if __name__ == '__main__':
 
 
     eval_pool = Pool(processes=3, initializer=evaluator.init_evaluator, initargs=(config,))
-    #trunk = eval_pool.apply(func=evaluator.do_evaluate_task, args=('班车',))
+    
 
     application = tornado.web.Application([
-            (r"/predict", PredictHttpServer, 
+            (r"/intent", PredictHttpServer, 
             dict(eval_pool=eval_pool,)
             ),
         ])
