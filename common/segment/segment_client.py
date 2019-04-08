@@ -27,14 +27,7 @@ class SegClient(object):
 
 
     def gen_request_key(self, trunks):
-        items_str = 'appId' + self.app_id
-        for key, value in trunks:
-            items_str += str(key) + str(value)
-        items_str = self.app_secret + items_str + self.app_secret
-
-        md5_handler = hashlib.md5()
-        md5_handler.update(items_str)
-        rs = md5_handler.hexdigest()
+        rs = ''
         return rs 
 
 
@@ -81,17 +74,4 @@ class SegClient(object):
         return rs.encode('utf-8') 
 
 if __name__ == '__main__':
-    seg_client = SegClient({'appId':'zsovspqm',
-                        'url':'http://47.97.108.232:20003/term',
-                        'appSecret':'4b1abe63deb7ee1117c8e386e7b16fae'})
-    rs = seg_client.segment_text('我要请假')
-    print(rs['data'])
-    res = json.loads(rs['data'])   
-    print(type(res))
-    
-    output = seg_client.segment_text2segs('我要请假')
-    print(output)
-    print(len(output))
-    print(type(output))
-    for i in output.decode('utf-8'):
-        print(i)
+    pass
