@@ -17,14 +17,11 @@ sys.path.append('../')
 from preprocess import tokenization
 from preprocess import bert_data_utils
 from preprocess import dataloader
-from setting import *
+from config import *
 from tensorflow.contrib import learn
 
 
 #os.environ["CUDA_VISIBLE_DEVICES"] = "" # not use GPU
-
-model_version = 'v%s/checkpoints'%VERSION
-model_dir = os.path.abspath(os.path.join(os.path.curdir, 'runs', model_version))
 
 
 flags = tf.flags
@@ -38,7 +35,6 @@ flags.DEFINE_string("label_map_file", BASE_DIR+"/example/runs/v"+VERSION+'/label
 #flags.DEFINE_string("init_checkpoint", BASE_DIR+"/example/runs/v"+VERSION+'/checkpoints/model.ckpt-3834', "vocab file")
 flags.DEFINE_string("model_dir", BASE_DIR+"/example/runs/v"+VERSION+'/checkpoints', "vocab file")
 flags.DEFINE_string("bert_config_file", BASE_DIR+"/example/runs/v"+VERSION+'/bert_config.json', "config json file")
-#tf.flags.DEFINE_string("test_data_file", BASE_DIR + "/data/data_v%s_test"%VERSION, "Test data source.")
 tf.flags.DEFINE_string("test_data_file", '../data/test.tsv', "Test data source.")
 tf.flags.DEFINE_integer("batch_size", 32, "Batch Size (default: 64)")
 tf.flags.DEFINE_integer("max_sequence_length", 64, "max sequnce length")
