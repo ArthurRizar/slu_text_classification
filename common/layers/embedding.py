@@ -1,10 +1,5 @@
 #coding:utf-8
-###################################################
-# File Name: embedding.py
-# Author: Meng Zhao
-# mail: @
-# Created Time: 2018年04月16日 星期一 17时00分27秒
-#=============================================================
+
 
 import tensorflow as tf
 
