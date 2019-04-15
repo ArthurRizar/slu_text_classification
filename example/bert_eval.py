@@ -111,7 +111,7 @@ def write_predictions(raw_examples, features, all_predictions, all_topk, idx2lab
     predictions_human_readable = np.column_stack((np.array(utf8_x_raw), utf8_y_raw))
     predictions_human_readable = np.column_stack((predictions_human_readable, all_topk_pred_label))
 
-    out_path = os.path.join(model_dir, '..', 'prediciton.csv')
+    out_path = os.path.join(FLAGS.model_dir, '..', 'prediciton.csv')
     print('Saving evaluation to {0}'.format(out_path))
     with open(out_path, 'w') as f:
         csv.writer(f, delimiter="\t",).writerows(predictions_human_readable)
@@ -136,11 +136,11 @@ def eval():
     print('\nEvaluating...\n')
 
     #Evaluation
-    checkpoint_file = tf.train.latest_checkpoint(model_dir)
+    checkpoint_file = tf.train.latest_checkpoint(FLAGS.model_dir)
     graph = tf.Graph()
     with graph.as_default():
         restore_graph_def = tf.GraphDef()
-        restore_graph_def.ParseFromString(open(model_dir+'/frozen_model.pb', 'rb').read())
+        restore_graph_def.ParseFromString(open(FLAGS.model_dir+'/frozen_model.pb', 'rb').read())
         tf.import_graph_def(restore_graph_def, name='')
 
         session_conf = tf.ConfigProto(
