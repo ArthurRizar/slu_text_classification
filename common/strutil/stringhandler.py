@@ -1,10 +1,5 @@
 #coding:utf-8
-###################################################
-# File Name: stringhandler.py
-# Author: Meng Zhao
-# mail: @
-# Created Time: Mon 26 Mar 2018 10:40:57 AM CST
-#=============================================================
+
 
 def normalize_num(word):
     if word.isdigit() and len(word) == 11:
