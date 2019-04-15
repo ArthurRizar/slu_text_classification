@@ -19,19 +19,19 @@ class Embedding(object):
             else:
                 self.W = tf.Variable(embedding_table, name='W', trainable=self.trainable)
 
-    def get_embedded_inputs(self, input_x, input_POS=None, input_sparse_x=None):
+    def get_embedded_inputs(self, inputs, input_tags=None, input_sparse_x=None):
         if self.use_subword:
             self.embedded_word = tf.nn.embedding_lookup_sparse(self.W, input_sparse_x, None, combiner='mean')
             self.embedded_word = tf.reshape(self.embedded_word, [-1, seq_len, self.embed_dim])
         else:
-            self.embedded_word = tf.nn.embedding_lookup(self.W, input_x)
+            self.embedded_word = tf.nn.embedding_lookup(self.W, inputs)
         final_embedding_list = [self.embedded_word]
 
-        if self.POS_onehot_size is not None and input_POS is not None:
-            POS_onehot = tf.one_hot(input_POS, self.POS_onehot_size, 1.0, 0.0)
+        if self.POS_onehot_size is not None and input_tags is not None:
+            POS_onehot = tf.one_hot(input_tags, self.POS_onehot_size, 1.0, 0.0)
             final_embedding_list.append(POS_onehot) 
         if self.position_size is not None:
-            position_embedding = self.calc_position_embedding(input_x, self.position_size)
+            position_embedding = self.calc_position_embedding(inputs, self.position_size)
             final_embedding_list.append(position_embedding)
         
         self.embedded_word_POS = tf.concat(final_embedding_list, axis=2)
