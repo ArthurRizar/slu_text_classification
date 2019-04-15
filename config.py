@@ -10,7 +10,7 @@ import tensorflow as tf
 VERSION = '1.0'
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 DATA_DIR = BASE_DIR + '/data'
-MODEL_DIR = BASE_DIR + '/example/runs/v' + VERSION
+MODEL_DIR = BASE_DIR + '/runs/v' + VERSION
 
 
 #SEGMENT
