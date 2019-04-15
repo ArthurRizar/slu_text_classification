@@ -1,9 +1,5 @@
 #coding:utf-8
-###################################################################
-# File Name: setting.py
-# Author: Meng Zhao
-# mail: @
-# Created Time: Wed 21 Mar 2018 04:50:40 PM CST
+# File Name: config.py
 #=============================================================
 import os
 import logging
@@ -11,7 +7,7 @@ import logging.handlers
 import tensorflow as tf
 
 #version
-VERSION = '0.91'
+VERSION = '1.0'
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 DATA_DIR = BASE_DIR + '/data'
 MODEL_DIR = BASE_DIR + '/example/runs/v' + VERSION
