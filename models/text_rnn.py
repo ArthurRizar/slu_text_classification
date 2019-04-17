@@ -11,7 +11,7 @@ sys.path.append('../')
 from tensorflow.python.ops import array_ops
 from tensorflow.contrib import rnn
 
-from setting import *
+from config import *
 from common.layers.embedding import Embedding
 
 def highway(input_, num_outputs, num_layers=1, bias=-2.0, f=tf.nn.relu, scope='Highway'):
