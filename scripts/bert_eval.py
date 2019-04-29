@@ -13,12 +13,12 @@ import numpy as np
 
 sys.path.append('../')
 
+from tensorflow.contrib import learn
 
 from preprocess import tokenization
 from preprocess import bert_data_utils
-from preprocess import dataloader
+from preprocess import datahelper
 from config import *
-from tensorflow.contrib import learn
 
 
 #os.environ["CUDA_VISIBLE_DEVICES"] = "" # not use GPU
@@ -160,7 +160,7 @@ def eval():
             scores = graph.get_operation_by_name('loss/logits').outputs[0]
             pred_labels = graph.get_operation_by_name('loss/pred_labels').outputs[0]
 
-            batches = dataloader.batch_iter(list(features), FLAGS.batch_size, 1, shuffle=False)
+            batches = datahelper.batch_iter(list(features), FLAGS.batch_size, 1, shuffle=False)
 
             #collect the predictions here
             all_predictions = []
