@@ -14,7 +14,7 @@ from tensorflow.python.saved_model import tag_constants
 
 sys.path.append('../')
 
-from setting import *
+from config import *
 
 
 
