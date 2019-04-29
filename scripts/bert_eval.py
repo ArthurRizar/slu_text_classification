@@ -29,12 +29,12 @@ flags = tf.flags
 FLAGS = flags.FLAGS
 
 flags.DEFINE_boolean("do_lower_case", True, "Whether to lower case the input text")
-flags.DEFINE_string("vocab_file", BASE_DIR+"/example/runs/v"+VERSION+'/vocab.txt', "vocab file")
-flags.DEFINE_string("label_file", BASE_DIR+"/example/runs/v"+VERSION+'/labels.txt', "label file")
-flags.DEFINE_string("label_map_file", BASE_DIR+"/example/runs/v"+VERSION+'/label_map', "label map file")
-#flags.DEFINE_string("init_checkpoint", BASE_DIR+"/example/runs/v"+VERSION+'/checkpoints/model.ckpt-3834', "vocab file")
-flags.DEFINE_string("model_dir", BASE_DIR+"/example/runs/v"+VERSION+'/checkpoints', "vocab file")
-flags.DEFINE_string("bert_config_file", BASE_DIR+"/example/runs/v"+VERSION+'/bert_config.json', "config json file")
+flags.DEFINE_string("vocab_file", MODEL_DIR+'/vocab.txt', "vocab file")
+flags.DEFINE_string("label_file", MODEL_DIR+'/labels.txt', "label file")
+flags.DEFINE_string("label_map_file", MODEL_DIR+'/label_map', "label map file")
+#flags.DEFINE_string("init_checkpoint", MODEL_DIR+'/checkpoints/model.ckpt-3834', "vocab file")
+flags.DEFINE_string("model_dir", MODEL_DIR+'/checkpoints', "vocab file")
+flags.DEFINE_string("bert_config_file", MODEL_DIR+'/bert_config.json', "config json file")
 tf.flags.DEFINE_string("test_data_file", '../data/test.tsv', "Test data source.")
 tf.flags.DEFINE_integer("batch_size", 32, "Batch Size (default: 64)")
 tf.flags.DEFINE_integer("max_sequence_length", 64, "max sequnce length")

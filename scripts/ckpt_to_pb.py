@@ -108,6 +108,5 @@ if __name__ == '__main__':
 
 
   #test = get_graph_def_from_saved_model('../example/runs/v0.91/checkpoints')
-  test = get_size('../example/runs/v0.91/checkpoints', 'frozen_model.pb')
 
 
