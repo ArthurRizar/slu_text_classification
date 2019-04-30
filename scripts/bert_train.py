@@ -35,7 +35,12 @@ sys.path.append('../')
 
 from models import modeling
 from models import optimization
+
+from models import bert_classify_model
+
 from preprocess import tokenization
+
+os.environ["CUDA_VISIBLE_DEVICES"] =''
 
 flags = tf.flags
 
@@ -432,58 +437,11 @@ def read_data_from_tfrecord(input_file, max_seq_length, batch_size, is_training,
 
 
     data = data.apply(
-        tf.contrib.data.map_and_batch(
+        tf.data.experimental.map_and_batch(
                             lambda record: _decode_record(record, name_to_features),
                             batch_size=batch_size,
                             drop_remainder=drop_remainder))
     return data
-
-def file_based_input_fn_builder(input_file, seq_length, is_training,
-                                                                drop_remainder):
-    """Creates an `input_fn` closure to be passed to TPUEstimator."""
-
-    name_to_features = {
-            "input_ids": tf.FixedLenFeature([seq_length], tf.int64),
-            "input_mask": tf.FixedLenFeature([seq_length], tf.int64),
-            "segment_ids": tf.FixedLenFeature([seq_length], tf.int64),
-            "label_ids": tf.FixedLenFeature([], tf.int64),
-            "is_real_example": tf.FixedLenFeature([], tf.int64),
-    }
-
-    def _decode_record(record, name_to_features):
-        """Decodes a record to a TensorFlow example."""
-        example = tf.parse_single_example(record, name_to_features)
-
-        # tf.Example only supports tf.int64, but the TPU only supports tf.int32.
-        # So cast all int64 to int32.
-        for name in list(example.keys()):
-            t = example[name]
-            if t.dtype == tf.int64:
-                t = tf.to_int32(t)
-            example[name] = t
-
-        return example
-
-    def input_fn(params):
-        """The actual input function."""
-        batch_size = params["batch_size"]
-
-        # For training, we want a lot of parallel reading and shuffling.
-        # For eval, we want no shuffling and parallel reading doesn't matter.
-        d = tf.data.TFRecordDataset(input_file)
-        if is_training:
-            d = d.repeat()
-            d = d.shuffle(buffer_size=100)
-
-        d = d.apply(
-                tf.contrib.data.map_and_batch(
-                        lambda record: _decode_record(record, name_to_features),
-                        batch_size=batch_size,
-                        drop_remainder=drop_remainder))
-
-        return d
-
-    return input_fn
 
 
 def _truncate_seq_pair(tokens_a, tokens_b, max_length):
@@ -502,346 +460,6 @@ def _truncate_seq_pair(tokens_a, tokens_b, max_length):
         else:
             tokens_b.pop()
 
-def create_model_v2(bert_config,
-                    num_labels, 
-                    use_one_hot_embeddings, 
-                    max_seq_length, 
-                    init_checkpoint, 
-                    learning_rate,
-                    num_train_steps,
-                    num_warmup_steps):
-    
-    #input_ids = tf.placeholder(tf.int32, [None, max_seq_length], name='input_ids')
-    input_ids = tf.placeholder(tf.int32, [None, None], name='input_ids')
-    #input_mask = tf.placeholder(tf.int32, [None, max_seq_length], name='input_mask')
-    input_mask = tf.placeholder(tf.int32, [None, None], name='input_mask')
-    #segment_ids = tf.placeholder(tf.int32, [None, max_seq_length], name='segment_ids')
-    segment_ids = tf.placeholder(tf.int32, [None, None], name='segment_ids')
-    label_ids = tf.placeholder(tf.int32, [None], name='label_ids')
-    is_training = tf.placeholder(tf.bool, None, name='is_training') 
-
-    model = modeling.BertModel(config=bert_config,
-                               is_training=is_training,
-                               input_ids=input_ids,
-                               input_mask=input_mask,
-                               token_type_ids=segment_ids,
-                               use_one_hot_embeddings=use_one_hot_embeddings) 
-    tvars = tf.trainable_variables()
-    initialized_variable_names = {}
-    if init_checkpoint:
-        (assignment_map, initialized_variable_names
-            ) = modeling.get_assignment_map_from_checkpoint(tvars, init_checkpoint)
-        tf.train.init_from_checkpoint(init_checkpoint, assignment_map)
-
-    tf.logging.info("**** Trainable Variables ****")
-    for var in tvars:
-        init_string = ""
-        if var.name in initialized_variable_names:
-            init_string = ", *INIT_FROM_CKPT*"
-        tf.logging.info("    name = %s, shape = %s%s", var.name, var.shape,
-                                            init_string)
-    
-    loss, per_example_loss, logits, probabilities, acc, pred_labels = inference(model, num_labels, is_training, label_ids)
-    train_op = get_train_op(loss, learning_rate, num_train_steps, num_warmup_steps)
-
-    return (input_ids, input_mask, segment_ids, label_ids, is_training,
-             loss, logits, probabilities, acc, pred_labels, train_op)
-
-def get_train_op(loss, learning_rate, num_train_steps, num_warmup_steps):
-
-
-    #type 1, bert default train ops
-    train_op = optimization.create_optimizer(loss, learning_rate, num_train_steps, num_warmup_steps, False)
-
-   
-    #type 2, adam
-    #train_op = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(loss)
-
-    #type3
-    #learning_rate = tf.train.exponential_decay(learning_rate, self.global_step, self.decay_steps,self.decay_rate, staircase=True)
-    #train_op = tf.contrib.layers.optimize_loss(loss, global_step=global_step, learning_rate=learning_rate, optimizer="Adam")
-
-    return train_op
-
-def inference(model, num_labels, is_training, labels):
-    output_layer = model.get_pooled_output()
-
-    hidden_size = output_layer.shape[-1].value
-
-    output_weights = tf.get_variable(
-            "output_weights", [num_labels, hidden_size],
-            initializer=tf.truncated_normal_initializer(stddev=0.02))
-
-    output_bias = tf.get_variable(
-            "output_bias", [num_labels], initializer=tf.zeros_initializer())
-
-    keep_prob = 1.0
-    with tf.variable_scope("loss"):
-        '''
-        #original
-        if is_training.value:
-            # I.e., 0.1 dropout
-            output_layer = tf.nn.dropout(output_layer, keep_prob=0.9)
-        '''
-        #print(is_training) 
-        #exit()
-        #new dropout type
-        def do_dropout(): 
-            return 0.9
-        def do_not_dropout():
-            return 1.0
-        keep_prob = tf.cond(is_training, do_dropout, do_not_dropout)
-        output_layer = tf.nn.dropout(output_layer, keep_prob=keep_prob)
-
-
-        logits = tf.matmul(output_layer, output_weights, transpose_b=True)
-        logits = tf.nn.bias_add(logits, output_bias, name='logits')
-        probabilities = tf.nn.softmax(logits, axis=-1, name='probs')
-        log_probs = tf.nn.log_softmax(logits, axis=-1)
-        one_hot_labels = tf.one_hot(labels, depth=num_labels, dtype=tf.float32)
-
-        per_example_loss = -tf.reduce_sum(one_hot_labels*log_probs, axis=-1)
-        loss = tf.reduce_mean(per_example_loss)
-        pred_labels = tf.argmax(logits, 1, name='pred_labels')
-    
-    with tf.name_scope("accuracy"):
-        correct_pred = tf.equal(tf.argmax(one_hot_labels, 1), pred_labels)
-        acc = tf.reduce_mean(tf.cast(correct_pred, tf.float32), name="acc")
-
-    return (loss, per_example_loss, logits, probabilities, acc, pred_labels)
-
-def create_model(bert_config, is_training, input_ids, input_mask, segment_ids,
-                                 labels, num_labels, use_one_hot_embeddings):
-    """Creates a classification model."""
-    model = modeling.BertModel(
-            config=bert_config,
-            is_training=is_training,
-            input_ids=input_ids,
-            input_mask=input_mask,
-            token_type_ids=segment_ids,
-            use_one_hot_embeddings=use_one_hot_embeddings)
-
-    # In the demo, we are doing a simple classification task on the entire
-    # segment.
-    #
-    # If you want to use the token-level output, use model.get_sequence_output()
-    # instead.
-    output_layer = model.get_pooled_output()
-
-    hidden_size = output_layer.shape[-1].value
-
-    output_weights = tf.get_variable(
-            "output_weights", [num_labels, hidden_size],
-            initializer=tf.truncated_normal_initializer(stddev=0.02))
-
-    output_bias = tf.get_variable(
-            "output_bias", [num_labels], initializer=tf.zeros_initializer())
-
-    keep_prob = 1.0
-    with tf.variable_scope("loss"):
-        '''
-        #original
-        if is_training.value:
-            # I.e., 0.1 dropout
-            output_layer = tf.nn.dropout(output_layer, keep_prob=0.9)
-        '''
-        #print(is_training) 
-        #exit()
-        #new dropout type
-        keep_prob = 1.0
-        def do_dropout():
-            keep_prob = 0.9
-            return 1
-        def do_not_dropout():
-            return 1
-        tf.cond(is_training, do_dropout, do_not_dropout)
-        output_layer = tf.nn.dropout(output_layer, keep_prob=keep_prob)
-
-
-        logits = tf.matmul(output_layer, output_weights, transpose_b=True)
-        logits = tf.nn.bias_add(logits, output_bias, name='logits')
-        probabilities = tf.nn.softmax(logits, axis=-1, name='probs')
-        log_probs = tf.nn.log_softmax(logits, axis=-1)
-        one_hot_labels = tf.one_hot(labels, depth=num_labels, dtype=tf.float32)
-
-        per_example_loss = -tf.reduce_sum(one_hot_labels*log_probs, axis=-1)
-        loss = tf.reduce_mean(per_example_loss)
-        pred_labels = tf.argmax(logits, 1, name='pred_labels')
-
-        return (loss, per_example_loss, logits, probabilities)
-
-
-def model_fn_builder(bert_config, num_labels, init_checkpoint, learning_rate,
-                                         num_train_steps, num_warmup_steps, use_tpu,
-                                         use_one_hot_embeddings):
-    """Returns `model_fn` closure for TPUEstimator."""
-
-    def model_fn(features, labels, mode, params):    # pylint: disable=unused-argument
-        """The `model_fn` for TPUEstimator."""
-
-        tf.logging.info("*** Features ***")
-        for name in sorted(features.keys()):
-            tf.logging.info("    name = %s, shape = %s" % (name, features[name].shape))
-        input_ids = features["input_ids"]
-        input_mask = features["input_mask"]
-        segment_ids = features["segment_ids"]
-        label_ids = features["label_ids"]
-
-        print(input_ids)
-        print(input_mask)
-        print(segment_ids)
-        is_real_example = None
-        if "is_real_example" in features:
-            is_real_example = tf.cast(features["is_real_example"], dtype=tf.float32)
-        else:
-            is_real_example = tf.ones(tf.shape(label_ids), dtype=tf.float32)
-
-        is_training = tf.cast((mode == tf.estimator.ModeKeys.TRAIN), tf.bool, name='is_training')
-        #print(is_training)
-        #exit()
-
-        (total_loss, per_example_loss, logits, probabilities) = create_model(
-                bert_config, is_training, input_ids, input_mask, segment_ids, label_ids,
-                num_labels, use_one_hot_embeddings)
-
-        tvars = tf.trainable_variables()
-        initialized_variable_names = {}
-        scaffold_fn = None
-        if init_checkpoint:
-            (assignment_map, initialized_variable_names
-            ) = modeling.get_assignment_map_from_checkpoint(tvars, init_checkpoint)
-            if use_tpu:
-
-                def tpu_scaffold():
-                    tf.train.init_from_checkpoint(init_checkpoint, assignment_map)
-                    return tf.train.Scaffold()
-
-                scaffold_fn = tpu_scaffold
-            else:
-                tf.train.init_from_checkpoint(init_checkpoint, assignment_map)
-
-        tf.logging.info("**** Trainable Variables ****")
-        for var in tvars:
-            init_string = ""
-            if var.name in initialized_variable_names:
-                init_string = ", *INIT_FROM_CKPT*"
-            tf.logging.info("    name = %s, shape = %s%s", var.name, var.shape,
-                                            init_string)
-
-        output_spec = None
-        if mode == tf.estimator.ModeKeys.TRAIN:
-
-            train_op = optimization.create_optimizer(
-                    total_loss, learning_rate, num_train_steps, num_warmup_steps, use_tpu)
-
-            output_spec = tf.contrib.tpu.TPUEstimatorSpec(
-                    mode=mode,
-                    loss=total_loss,
-                    train_op=train_op,
-                    scaffold_fn=scaffold_fn)
-        elif mode == tf.estimator.ModeKeys.EVAL:
-
-            def metric_fn(per_example_loss, label_ids, logits, is_real_example):
-                predictions = tf.argmax(logits, axis=-1, output_type=tf.int32)
-                accuracy = tf.metrics.accuracy(
-                        labels=label_ids, predictions=predictions, weights=is_real_example)
-                loss = tf.metrics.mean(values=per_example_loss, weights=is_real_example)
-                return {
-                        "eval_accuracy": accuracy,
-                        "eval_loss": loss,
-                }
-
-            eval_metrics = (metric_fn,
-                            [per_example_loss, label_ids, logits, is_real_example])
-            output_spec = tf.contrib.tpu.TPUEstimatorSpec(
-                    mode=mode,
-                    loss=total_loss,
-                    eval_metrics=eval_metrics,
-                    scaffold_fn=scaffold_fn)
-        else:
-            output_spec = tf.contrib.tpu.TPUEstimatorSpec(
-                    mode=mode,
-                    predictions={"probabilities": probabilities},
-                    scaffold_fn=scaffold_fn)
-        return output_spec
-
-    return model_fn
-
-
-# This function is not used by this file but is still used by the Colab and
-# people who depend on it.
-def input_fn_builder(features, seq_length, is_training, drop_remainder):
-    """Creates an `input_fn` closure to be passed to TPUEstimator."""
-
-    all_input_ids = []
-    all_input_mask = []
-    all_segment_ids = []
-    all_label_ids = []
-
-    for feature in features:
-        all_input_ids.append(feature.input_ids)
-        all_input_mask.append(feature.input_mask)
-        all_segment_ids.append(feature.segment_ids)
-        all_label_ids.append(feature.label_id)
-
-    def input_fn(params):
-        """The actual input function."""
-        batch_size = params["batch_size"]
-
-        num_examples = len(features)
-
-        # This is for demo purposes and does NOT scale to large data sets. We do
-        # not use Dataset.from_generator() because that uses tf.py_func which is
-        # not TPU compatible. The right way to load data is with TFRecordReader.
-        d = tf.data.Dataset.from_tensor_slices({
-                "input_ids":
-                        tf.constant(
-                                all_input_ids, shape=[num_examples, seq_length],
-                                dtype=tf.int32),
-                "input_mask":
-                        tf.constant(
-                                all_input_mask,
-                                shape=[num_examples, seq_length],
-                                dtype=tf.int32),
-                "segment_ids":
-                        tf.constant(
-                                all_segment_ids,
-                                shape=[num_examples, seq_length],
-                                dtype=tf.int32),
-                "label_ids":
-                        tf.constant(all_label_ids, shape=[num_examples], dtype=tf.int32),
-        })
-
-        if is_training:
-            d = d.repeat()
-            d = d.shuffle(buffer_size=100)
-
-        d = d.batch(batch_size=batch_size, drop_remainder=drop_remainder)
-        return d
-
-    return input_fn
-
-
-# This function is not used by this file but is still used by the Colab and
-# people who depend on it.
-def convert_examples_to_features(examples, label_map, max_seq_length, tokenizer):
-    """Convert a set of `InputExample`s to a list of `InputFeatures`."""
-    
-
-    features = []
-    for (ex_index, example) in enumerate(examples):
-        if ex_index % 10000 == 0:
-            tf.logging.info("Writing example %d of %d" % (ex_index, len(examples)))
-
-        feature = convert_single_example(ex_index, example, label_map,
-                                         max_seq_length, tokenizer)
-
-        features.append(feature)
-    return features
-
-
-def do_train_step():
-    pass
 
 
 def get_tf_record_iterator(examples, output_dir, label_map, tokenizer, max_seq_length, batch_size, num_steps, name='train', shuffle=False):
@@ -857,21 +475,32 @@ def get_tf_record_iterator(examples, output_dir, label_map, tokenizer, max_seq_l
     batch_data_op = iterator.get_next() 
     return batch_data_op
 
+def train_process(sess,
+                  fine_tuning_model,
+                  train_batch_data_op,
+                  label_map,
+                  tokenizer):
+     
+    batch_data = sess.run(train_batch_data_op)
+    feed_dict = {fine_tuning_model.input_ids: batch_data['input_ids'],
+                 fine_tuning_model.input_mask: batch_data['input_mask'],
+                 fine_tuning_model.segment_ids: batch_data['segment_ids'],
+                 fine_tuning_model.label_ids: batch_data['label_ids'],
+                 fine_tuning_model.is_training: True}
+    _, loss_value, acc_value = sess.run([fine_tuning_model.train_op,
+                                         fine_tuning_model.loss,
+                                         fine_tuning_model.acc
+                                        ], feed_dict)
+    return loss_value, acc_value
+
 
 def eval_process(sess,
-                 input_ids,
-                 input_mask,
-                 label_ids,
-                 segment_ids,
-                 is_training,
-                 loss,
-                 acc,
-                 pred_labels,
+                 fine_tuning_model,
                  eval_examples,
                  label_map,
                  tokenizer,
                  num_eval_steps):
-    #get iterator op
+
     dev_batch_data_op = get_tf_record_iterator(eval_examples,
                                                FLAGS.output_dir,
                                                label_map,
@@ -887,12 +516,15 @@ def eval_process(sess,
     all_loss = 0.0
     for i in range(num_eval_steps):
         batch_data = sess.run(dev_batch_data_op)
-        feed_dict = {input_ids: batch_data['input_ids'],
-                     input_mask: batch_data['input_mask'],
-                     segment_ids: batch_data['segment_ids'],
-                     label_ids: batch_data['label_ids'],
-                     is_training: False}
-        loss_value, acc_value, cur_preds = sess.run([loss, acc, pred_labels], feed_dict)
+        feed_dict = {fine_tuning_model.input_ids: batch_data['input_ids'],
+                     fine_tuning_model.input_mask: batch_data['input_mask'],
+                     fine_tuning_model.segment_ids: batch_data['segment_ids'],
+                     fine_tuning_model.label_ids: batch_data['label_ids'],
+                     fine_tuning_model.is_training: False}
+        loss_value, acc_value, cur_preds = sess.run([fine_tuning_model.loss, 
+                                                     fine_tuning_model.acc,
+                                                     fine_tuning_model.pred_labels
+                                                    ], feed_dict)
         real_eval_label_ids.extend(batch_data['label_ids'])
         all_predictions.extend(cur_preds)
         all_loss += loss_value
@@ -949,29 +581,16 @@ def main(_):
                 FLAGS.tpu_name, zone=FLAGS.tpu_zone, project=FLAGS.gcp_project)
 
     is_per_host = tf.contrib.tpu.InputPipelineConfig.PER_HOST_V2
-    run_config = tf.contrib.tpu.RunConfig(
-            cluster=tpu_cluster_resolver,
-            master=FLAGS.master,
-            model_dir=FLAGS.output_dir,
-            save_checkpoints_steps=FLAGS.save_checkpoints_steps,
-            tpu_config=tf.contrib.tpu.TPUConfig(
-                    iterations_per_loop=FLAGS.iterations_per_loop,
-                    num_shards=FLAGS.num_tpu_cores,
-                    per_host_input_for_training=is_per_host))
 
     #train data
     train_examples = processor.get_train_examples(FLAGS.data_dir)
     rng.shuffle(train_examples)
     rng.shuffle(train_examples)
 
-    #num_train_steps = int(
-    #                    ((len(train_examples) - 1)/FLAGS.train_batch_size + 1) * FLAGS.num_train_epochs)
 
     num_train_steps = int((len(train_examples) * FLAGS.num_train_epochs - 1) / FLAGS.train_batch_size + 1)
     num_warmup_steps = int(num_train_steps * FLAGS.warmup_proportion)
     num_labels = len(label_list)
-
-    
 
 
     #eval data
@@ -980,19 +599,15 @@ def main(_):
     num_eval_steps = int((num_actual_eval_examples - 1) / FLAGS.eval_batch_size) + 1
 
 
-    (input_ids, input_mask, segment_ids, label_ids, is_training,
-        loss, logits,  probabilities, acc, pred_labels, train_op) = create_model_v2(bert_config,
-                                                                                  num_labels,
-                                                                                  FLAGS.use_tpu,
-                                                                                  FLAGS.max_seq_length, 
-                                                                                  FLAGS.init_checkpoint,
-                                                                                  FLAGS.learning_rate,
-                                                                                  num_train_steps,
-                                                                                  num_warmup_steps)
-
-    # If TPU is not available, this will fall back to normal Estimator on CPU
-    # or GPU.
-
+    fine_tuning_model = bert_classify_model.BertClassifyModel(bert_config,
+                                                              num_labels,
+                                                              FLAGS.use_tpu,
+                                                              FLAGS.max_seq_length,
+                                                              FLAGS.init_checkpoint,
+                                                              FLAGS.learning_rate,
+                                                              num_train_steps,
+                                                              num_warmup_steps)
+            
     sess = tf.Session()
     saver = tf.train.Saver()
     sess.run(tf.global_variables_initializer())
@@ -1001,77 +616,38 @@ def main(_):
                                                      FLAGS.output_dir,
                                                      label_map,
                                                      tokenizer,
-                                                     FLAGS.max_seq_length, 
-                                                     FLAGS.train_batch_size, 
+                                                     FLAGS.max_seq_length,
+                                                     FLAGS.train_batch_size,
                                                      num_train_steps,
                                                      name='train',
                                                      shuffle=True)
 
-        
+
 
         best_acc_value = 0.0
         eval_acc_value = 0.0
         for train_step in range(num_train_steps):
-            batch_data = sess.run(train_batch_data_op)
-            feed_dict = {input_ids: batch_data['input_ids'],
-                         input_mask: batch_data['input_mask'],
-                         segment_ids: batch_data['segment_ids'],
-                         label_ids: batch_data['label_ids'],
-                         is_training: True}
-            _, loss_value, acc_value = sess.run([train_op, loss, acc], feed_dict)
+            loss_value, acc_value = train_process(sess,
+                                                  fine_tuning_model,
+                                                  train_batch_data_op,
+                                                  label_map,
+                                                  tokenizer)
             time_str = datetime.datetime.now().isoformat()
             print('{}: step {}, loss {:g}, acc {:g}'.format(time_str, train_step, loss_value, acc_value))
 
-            if (train_step % 1000 == 0 and train_step != 0) or \
+            if (train_step % 2 == 0 and train_step != 0) or \
                (train_step == num_train_steps - 1):
                 eval_loss_value, eval_acc_value = eval_process(sess,
-                                                               input_ids,
-                                                               input_mask,
-                                                               label_ids,
-                                                               segment_ids,
-                                                               is_training,
-                                                               loss,
-                                                               acc,
-                                                               pred_labels,
-                                                               eval_examples, 
+                                                               fine_tuning_model, 
+                                                               eval_examples,
                                                                label_map,
                                                                tokenizer,
                                                                num_eval_steps)
 
             if eval_acc_value > best_acc_value:
                 best_acc_value = eval_acc_value
-                saver.save(sess, FLAGS.output_dir+'/checkpoints/model', global_step=train_step)
+                saver.save(sess, FLAGS.output_dir+'/checkpoints/model', global_step=train_step)   
 
-            
-
-        '''
-        #eval
-        dev_batch_data_op = get_tf_record_iterator(eval_examples,
-                                                   FLAGS.output_dir,
-                                                   label_map,
-                                                   tokenizer,
-                                                   FLAGS.max_seq_length,
-                                                   FLAGS.eval_batch_size,
-                                                   num_eval_steps,
-                                                   name='eval')
-
-        print('* eval results:*')
-        real_eval_label_ids = []
-        all_predictions = []
-        for i in range(num_eval_steps):
-            batch_data = sess.run(dev_batch_data_op)
-            feed_dict = {input_ids: batch_data['input_ids'],
-                         input_mask: batch_data['input_mask'],
-                         segment_ids: batch_data['segment_ids'],
-                         label_ids: batch_data['label_ids'],
-                         is_training: False}
-            loss_value, acc_value, cur_preds = sess.run([loss, acc, pred_labels], feed_dict)
-            real_eval_label_ids.extend(batch_data['label_ids'])
-            all_predictions.extend(cur_preds)
-        correct_predictions = float(sum(np.array(all_predictions)==np.array(real_eval_label_ids)))
-        print('Accuracy: {:g}'.format(correct_predictions/float(len(real_eval_label_ids))))
-        exit()
-        '''
 
 
 if __name__ == "__main__":

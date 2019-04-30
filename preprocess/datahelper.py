@@ -18,7 +18,8 @@ sys.path.append('../')
 
 from tensorflow.contrib import learn
 from nltk.util import ngrams
-from setting import *
+
+from config import *
 from common.strutil import stringhandler
 special_words = set(['<num>', '<phone>'])
 
