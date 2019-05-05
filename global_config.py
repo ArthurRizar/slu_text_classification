@@ -4,11 +4,19 @@
 import os
 import logging
 import logging.handlers
-import tensorflow as tf
+import configparser
+
+BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+
+
+cf = configparser.ConfigParser()
+cf_interpolation = configparser.ExtendedInterpolation()
+cf.read(BASE_DIR+'/global_config.cfg')
+
+
 
 #version
 VERSION = '1.0'
-BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 DATA_DIR = BASE_DIR + '/data'
 MODEL_DIR = BASE_DIR + '/runs/v' + VERSION
 
@@ -17,16 +25,17 @@ MODEL_DIR = BASE_DIR + '/runs/v' + VERSION
 SEGMENT_URL= 'http://127.0.0.1/segment'
 
 
+TF_SERVING_REST_PORT = cf['web']['rest_api_port']
+TF_SERVING_CLIENT_PORT = cf['web']['client_port']
 
 
 
 
 #files path
-STOP_WORDS_FILE = DATA_DIR + '/stopword_data/stop_words'
-#STOP_WORDS_FILE = DATA_DIR + '/stop_symbol'
-LABEL_FILE = MODEL_DIR + '/labels.txt'
-LABEL_MAP_FILE = MODEL_DIR + '/label_map'
-CODE_FILE = MODEL_DIR + '/labelcode'
+STOP_WORDS_FILE = BASE_DIR + cf['file_path']['stopword_file']
+LABEL_FILE = BASE_DIR + cf['file_path']['label_file']
+LABEL_MAP_FILE = BASE_DIR + cf['file_path']['label_map_file'].format(VERSION)
+CODE_FILE = BASE_DIR + cf['file_path']['code_file'].format(VERSION)
 
 
 

@@ -1,0 +1,14 @@
+2019-05-05 14:39:53,621 - DEBUG - [205]connectionpool.py - Starting new HTTP connection (1): localhost:9998
+2019-05-05 14:39:57,570 - DEBUG - [393]connectionpool.py - http://localhost:9998 "POST /v1/models/default:predict HTTP/1.1" 200 7046
+2019-05-05 14:40:00,319 - INFO - [83]tf_serving_client.py - 居住证如何办理呀
+2019-05-05 14:40:00,322 - DEBUG - [205]connectionpool.py - Starting new HTTP connection (1): localhost:9998
+2019-05-05 14:40:00,472 - DEBUG - [393]connectionpool.py - http://localhost:9998 "POST /v1/models/default:predict HTTP/1.1" 200 7050
+2019-05-05 14:40:00,473 - INFO - [2063]web.py - 304 GET /qa_intent?text=%E5%B1%85%E4%BD%8F%E8%AF%81%E5%A6%82%E4%BD%95%E5%8A%9E%E7%90%86%E5%91%80&method=predict (192.168.82.83) 155.58ms
+2019-05-05 14:40:02,656 - INFO - [83]tf_serving_client.py - 居住证如何办理呀1
+2019-05-05 14:40:02,659 - DEBUG - [205]connectionpool.py - Starting new HTTP connection (1): localhost:9998
+2019-05-05 14:40:02,812 - DEBUG - [393]connectionpool.py - http://localhost:9998 "POST /v1/models/default:predict HTTP/1.1" 200 7050
+2019-05-05 14:40:02,813 - INFO - [2063]web.py - 200 GET /qa_intent?text=%E5%B1%85%E4%BD%8F%E8%AF%81%E5%A6%82%E4%BD%95%E5%8A%9E%E7%90%86%E5%91%801&method=predict (192.168.82.83) 157.66ms
+2019-05-05 14:40:05,396 - INFO - [83]tf_serving_client.py - 居住证如何办理呀133
+2019-05-05 14:40:05,398 - DEBUG - [205]connectionpool.py - Starting new HTTP connection (1): localhost:9998
+2019-05-05 14:40:05,548 - DEBUG - [393]connectionpool.py - http://localhost:9998 "POST /v1/models/default:predict HTTP/1.1" 200 7054
+2019-05-05 14:40:05,549 - INFO - [2063]web.py - 200 GET /qa_intent?text=%E5%B1%85%E4%BD%8F%E8%AF%81%E5%A6%82%E4%BD%95%E5%8A%9E%E7%90%86%E5%91%80133&method=predict (192.168.82.83) 153.76ms

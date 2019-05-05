@@ -18,7 +18,7 @@ sys.path.append('../')
 from preprocess import bert_data_utils
 from preprocess import dataloader
 from preprocess import tokenization
-from setting import *
+from global_config import *
 from tensorflow.contrib import learn
 
 

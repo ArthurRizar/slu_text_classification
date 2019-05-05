@@ -40,7 +40,7 @@ from models import bert_classify_model
 
 from preprocess import tokenization
 
-os.environ["CUDA_VISIBLE_DEVICES"] =''
+#os.environ["CUDA_VISIBLE_DEVICES"] =''
 
 flags = tf.flags
 
@@ -635,7 +635,7 @@ def main(_):
             time_str = datetime.datetime.now().isoformat()
             print('{}: step {}, loss {:g}, acc {:g}'.format(time_str, train_step, loss_value, acc_value))
 
-            if (train_step % 2 == 0 and train_step != 0) or \
+            if (train_step % 100 == 0 and train_step != 0) or \
                (train_step == num_train_steps - 1):
                 eval_loss_value, eval_acc_value = eval_process(sess,
                                                                fine_tuning_model, 

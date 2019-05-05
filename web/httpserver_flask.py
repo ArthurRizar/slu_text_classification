@@ -20,7 +20,7 @@ import logging
 sys.path.append('../')
 
 
-from setting import *
+from global_config import *
 from evaluator import Evaluator
 from common.segment.segment_client import SegClient
 

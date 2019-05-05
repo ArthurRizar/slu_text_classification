@@ -19,7 +19,7 @@ sys.path.append('../')
 from tensorflow.contrib import learn
 from nltk.util import ngrams
 
-from config import *
+from global_config import *
 from common.strutil import stringhandler
 special_words = set(['<num>', '<phone>'])
 
@@ -275,11 +275,11 @@ def process_sentence(text, stop_set, label2idx):
 
 
 
-def load_test_data(data_file):
+def load_test_data(data_file, stop_words_file='./data/stopword_dat/stop_words'):
     uni_sents = []
     sent_segs = []
     labels = []
-    stop_set = get_stop_words_set(STOP_WORDS_FILE)
+    stop_set = get_stop_words_set(stop_words_file)
     with open(data_file, 'r') as lines:
         for line in lines:
             line = line.strip().lower()
@@ -297,8 +297,8 @@ def load_test_data(data_file):
     one_hot_labels = one_hot_encode(label_indices)
     return [uni_sents, sent_segs, one_hot_labels]
 
-def load_data_and_labels(data_file):
-    stop_set = get_stop_words_set(STOP_WORDS_FILE)
+def load_data_and_labels(data_file, stop_words_file='./data/stopword_data/stop_words'):
+    stop_set = get_stop_words_set(stop_words_file)
     uni_sents = []
     sent_segs = []
     labels = []

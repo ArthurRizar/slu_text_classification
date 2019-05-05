@@ -21,7 +21,7 @@ import logging
 sys.path.append('../')
 
 
-import evaluator
+import tf_serving_evaluator
 
 #from tornado.concurrent import run_on_executor
 #from concurrent.futures import ThreadPoolExecutor
@@ -29,15 +29,14 @@ import evaluator
 
 from multiprocessing import Pool, TimeoutError
 
-from setting import *
-from evaluator import Evaluator
-from preprocess import dataloader
+from global_config import *
+from preprocess import datahelper
 from common.segment.segment_client import SegClient
 
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "" #不使用GPU
 
-stop_set = dataloader.get_stop_words_set(STOP_WORDS_FILE)
+stop_set = datahelper.get_stop_words_set(STOP_WORDS_FILE)
 
 
 
@@ -137,23 +136,25 @@ if __name__ == '__main__':
     config = {}
     config['model_dir'] = MODEL_DIR
     config['model_checkpoints_dir'] = MODEL_DIR + '/checkpoints/'
-    config['max_seq_length'] = 32
+    config['max_seq_length'] = 64
     config['top_k'] = 3
     config['code_file'] = CODE_FILE
     config['label_map_file'] = LABEL_MAP_FILE
     config['vocab_file'] = MODEL_DIR + '/vocab.txt'
     config['model_pb_path'] = MODEL_DIR + '/checkpoints/frozen_model.pb'
+    config['tf_serving_url'] = 'http://localhost:'+str(TF_SERVING_REST_PORT)+'/v1/models/default:predict'
+    config['signature_name'] = 'predict_text'
 
-    pred_instance = Evaluator(config)
-    pred_instance.evaluate('测试')
+    pred_instance = tf_serving_evaluator.Evaluator(config)
+    pred_instance.evaluate('班车报表')
 
 
     application = tornado.web.Application([
-            (r"/intent", PredictHttpServer, 
+            (r"/qa_intent", PredictHttpServer, 
             dict(pred_instance=pred_instance,)
             ),
         ])
-    application.listen(13965)
+    application.listen(TF_SERVING_CLIENT_PORT)
    
     #server = tornado.httpserver.HTTPServer(application)
     #server.bind(7732)

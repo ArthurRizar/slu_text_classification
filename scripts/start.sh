@@ -16,4 +16,4 @@ python bert_train.py --task_name=test \
                      --do_train=true \
                      --num_train_epochs=1; 
 
-python ckpt_to_pb.py
+python ckpt_to_other.py

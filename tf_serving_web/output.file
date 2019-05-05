@@ -1,0 +1,19 @@
+2019-05-05 14:39:49.234452: I tensorflow_serving/model_servers/server.cc:82] Building single TensorFlow model file config:  model_name: default model_base_path: /root/zhaomeng/text_classify/slu_text_classification/tf_serving_web/../runs/v1.0/checkpoints/
+2019-05-05 14:39:49.234637: I tensorflow_serving/model_servers/server_core.cc:461] Adding/updating models.
+2019-05-05 14:39:49.234657: I tensorflow_serving/model_servers/server_core.cc:558]  (Re-)adding model: default
+2019-05-05 14:39:49.335129: I tensorflow_serving/core/basic_manager.cc:739] Successfully reserved resources to load servable {name: default version: 1}
+2019-05-05 14:39:49.335177: I tensorflow_serving/core/loader_harness.cc:66] Approving load for servable version {name: default version: 1}
+2019-05-05 14:39:49.335203: I tensorflow_serving/core/loader_harness.cc:74] Loading servable version {name: default version: 1}
+2019-05-05 14:39:49.335234: I external/org_tensorflow/tensorflow/contrib/session_bundle/bundle_shim.cc:363] Attempting to load native SavedModelBundle in bundle-shim from: /root/zhaomeng/text_classify/slu_text_classification/tf_serving_web/../runs/v1.0/checkpoints/1
+2019-05-05 14:39:49.335250: I external/org_tensorflow/tensorflow/cc/saved_model/reader.cc:31] Reading SavedModel from: /root/zhaomeng/text_classify/slu_text_classification/tf_serving_web/../runs/v1.0/checkpoints/1
+2019-05-05 14:39:49.576602: I external/org_tensorflow/tensorflow/cc/saved_model/reader.cc:54] Reading meta graph with tags { serve }
+2019-05-05 14:39:49.582560: I external/org_tensorflow/tensorflow/core/platform/cpu_feature_guard.cc:141] Your CPU supports instructions that this TensorFlow binary was not compiled to use: AVX2 FMA
+2019-05-05 14:39:49.613213: I external/org_tensorflow/tensorflow/cc/saved_model/loader.cc:182] Restoring SavedModel bundle.
+2019-05-05 14:39:49.613265: I external/org_tensorflow/tensorflow/cc/saved_model/loader.cc:192] The specified SavedModel has no variables; no checkpoints were restored. File does not exist: /root/zhaomeng/text_classify/slu_text_classification/tf_serving_web/../runs/v1.0/checkpoints/1/variables/variables.index
+2019-05-05 14:39:49.613274: I external/org_tensorflow/tensorflow/cc/saved_model/loader.cc:132] Running initialization op on SavedModel bundle.
+2019-05-05 14:39:49.630922: I external/org_tensorflow/tensorflow/cc/saved_model/loader.cc:285] SavedModel load for tags { serve }; Status: success. Took 295660 microseconds.
+2019-05-05 14:39:49.630995: I tensorflow_serving/servables/tensorflow/saved_model_warmup.cc:101] No warmup data file found at /root/zhaomeng/text_classify/slu_text_classification/tf_serving_web/../runs/v1.0/checkpoints/1/assets.extra/tf_serving_warmup_requests
+2019-05-05 14:39:49.631062: I tensorflow_serving/core/loader_harness.cc:86] Successfully loaded servable version {name: default version: 1}
+2019-05-05 14:39:49.636727: I tensorflow_serving/model_servers/server.cc:313] Running gRPC ModelServer at 0.0.0.0:8500 ...
+[evhttp_server.cc : 237] RAW: Entering the event loop ...
+2019-05-05 14:39:49.639703: I tensorflow_serving/model_servers/server.cc:333] Exporting HTTP/REST API at:localhost:9998 ...

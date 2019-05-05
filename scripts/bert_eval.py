@@ -18,7 +18,7 @@ from tensorflow.contrib import learn
 from preprocess import tokenization
 from preprocess import bert_data_utils
 from preprocess import datahelper
-from config import *
+from global_config import *
 
 
 #os.environ["CUDA_VISIBLE_DEVICES"] = "" # not use GPU
