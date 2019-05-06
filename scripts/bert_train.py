@@ -478,8 +478,7 @@ def get_tf_record_iterator(examples, output_dir, label_map, tokenizer, max_seq_l
 def train_process(sess,
                   fine_tuning_model,
                   train_batch_data_op,
-                  label_map,
-                  tokenizer):
+                  label_map):
      
     batch_data = sess.run(train_batch_data_op)
     feed_dict = {fine_tuning_model.input_ids: batch_data['input_ids'],
