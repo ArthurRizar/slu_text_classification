@@ -1,6 +1,7 @@
 # -*- coding:utf-8 -*-
 
 import sys
+import six
 import tensorflow as tf
 import numpy as np
 import tensorflow.contrib as tf_contrib
@@ -11,7 +12,7 @@ sys.path.append('../')
 from tensorflow.python.ops import array_ops
 from tensorflow.contrib import rnn
 
-from config import *
+from global_config import *
 from common.layers.embedding import Embedding
 
 def highway(input_, num_outputs, num_layers=1, bias=-2.0, f=tf.nn.relu, scope='Highway'):
@@ -33,13 +34,78 @@ def highway(input_, num_outputs, num_layers=1, bias=-2.0, f=tf.nn.relu, scope='H
 
     return output
 
+def assert_rank(tensor, expected_rank, name=None):
+    """Raises an exception if the tensor rank is not of the expected rank.
+
+    Args:
+        tensor: A tf.Tensor to check the rank of.
+        expected_rank: Python integer or list of integers, expected rank.
+        name: Optional name of the tensor for the error message.
+
+    Raises:
+        ValueError: If the expected shape doesn't match the actual shape.
+    """
+    if name is None:
+        name = tensor.name
+
+    expected_rank_dict = {}
+    if isinstance(expected_rank, six.integer_types):
+        expected_rank_dict[expected_rank] = True
+    else:
+        for x in expected_rank:
+            expected_rank_dict[x] = True
+
+    actual_rank = tensor.shape.ndims
+    if actual_rank not in expected_rank_dict:
+        scope_name = tf.get_variable_scope().name
+        raise ValueError(
+                "For the tensor `%s` in scope `%s`, the actual rank "
+                "`%d` (shape = %s) is not equal to the expected rank `%s`" %
+                (name, scope_name, actual_rank, str(tensor.shape), str(expected_rank)))
+
+
+def get_shape_list(tensor, expected_rank=None, name=None):
+    """Returns a list of the shape of tensor, preferring static dimensions.
+
+    Args:
+        tensor: A tf.Tensor object to find the shape of.
+        expected_rank: (optional) int. The expected rank of `tensor`. If this is
+            specified and the `tensor` has a different rank, and exception will be
+            thrown.
+        name: Optional name of the tensor for the error message.
+
+    Returns:
+        A list of dimensions of the shape of tensor. All static dimensions will
+        be returned as python integers, and dynamic dimensions will be returned
+        as tf.Tensor scalars.
+    """
+    if name is None:
+        name = tensor.name
+
+    if expected_rank is not None:
+        assert_rank(tensor, expected_rank, name)
+
+    shape = tensor.shape.as_list()
+
+    non_static_indexes = []
+    for (index, dim) in enumerate(shape):
+        if dim is None:
+            non_static_indexes.append(index)
+
+    if not non_static_indexes:
+        return shape
+
+    dyn_shape = tf.shape(tensor)
+    for index in non_static_indexes:
+        shape[index] = dyn_shape[index]
+    return shape
 
 
 class TextRNN(object):
     '''
     A cnn for text classification, following by a convolution, max-pooling, full-connection and softmax
     '''
-    def __init__(self, seq_len, num_classes, vocab_size, embed_size, filter_sizes, num_filters, embedding_table=None, 
+    def __init__(self, seq_length, num_classes, vocab_size, embed_size, filter_sizes, num_filters, embedding_table=None, 
             l2_reg_lambda=0.0, decay_steps=1000, decay_rate=0.9, clip_gradients=5.0, learning_rate=1e-4):
         '''
         @brief:
@@ -62,8 +128,12 @@ class TextRNN(object):
         self.learning_rate = learning_rate
 
         #placeholder
-        self.input_x = tf.placeholder(tf.int32, [None, None], name='input_x')        # shape: batch_size * seq_len
-        self.input_POS = tf.placeholder(tf.int32, [None, None], name='input_POS')
+        #self.input_x = tf.placeholder(tf.int32, [None, None], name='input_x')        # shape: batch_size * seq_len
+        #self.input_x = tf.placeholder(tf.int32, [None, seq_length], name='input_x')        # shape: batch_size * seq_len
+        self.input_x = tf.placeholder(tf.int32, [8, seq_length], name='input_x')        # shape: batch_size * seq_len
+        #self.input_POS = tf.placeholder(tf.int32, [None, None], name='input_POS')
+        #self.input_POS = tf.placeholder(tf.int32, [None, seq_length], name='input_POS')
+        self.input_POS = tf.placeholder(tf.int32, [8, seq_length], name='input_POS')
         self.input_y = tf.placeholder(tf.float32, [None, num_classes], name='input_y')    # shape: batch_size * num_class
         
         self.dropout_keep_prob = tf.placeholder(tf.float32, name='dropout_keep_prob')          # dropout keep probability  
@@ -87,7 +157,8 @@ class TextRNN(object):
 
             self.embedded_word_expand = tf.expand_dims(self.embedded_words, -1)
          
-        self.h_flat = self.rnn_attn_layer()
+        #self.h_flat = self.rnn_attn_layer()
+        self.h_flat = self.rnn_multihead_attn_layer()
 
         '''
         #add highway
@@ -134,14 +205,80 @@ class TextRNN(object):
         self.train_op = self.get_train_op()
 
 
+    def rnn_multihead_attn_layer(self):
+        def transpose_for_scores(input_tensor,
+                                 batch_size,
+                                 num_attention_heads,
+                                 seq_length,
+                                 width):
+            output_tensor = tf.reshape(input_tensor,
+                                        [batch_size, seq_length, num_attention_heads, width])
+            output_tensor = tf.transpose(output_tensor, [0, 2, 1, 3])
+            return output_tensor
+
+        hidden_size = self.embed_size
+        lstm_fw_cell = rnn.GRUCell(hidden_size)
+        lstm_bw_cell = rnn.GRUCell(hidden_size)
+        if self.dropout_keep_prob is not None:
+            lstm_fw_cell = rnn.DropoutWrapper(lstm_fw_cell, input_keep_prob=self.dropout_keep_prob, output_keep_prob=self.dropout_keep_prob)
+            lstm_bw_cell = rnn.DropoutWrapper(lstm_bw_cell, input_keep_prob=self.dropout_keep_prob, output_keep_prob=self.dropout_keep_prob)
+        
+        #outputs, _ = tf.nn.bidirectional_dynamic_rnn(lstm_fw_cell, lstm_bw_cell, self.embedded_words, self.input_mask, dtype=tf.float32)
+        outputs, _ = tf.nn.bidirectional_dynamic_rnn(lstm_fw_cell, lstm_bw_cell, self.embedded_words, dtype=tf.float32)
+        output_rnn = tf.concat(outputs, axis=2)
+
+        input_shape = get_shape_list(output_rnn, expected_rank=3)
+        batch_size = input_shape[0]
+        seq_length = input_shape[1]
+
+
+        attention_size = hidden_size
+        num_attention_heads = 10
+        size_per_head = int(hidden_size / num_attention_heads)
+        with tf.name_scope('multihead_attention'):
+            W = tf.get_variable(name='W_attn', shape=[hidden_size*2, hidden_size], initializer=tf.truncated_normal_initializer(stddev=0.1))
+            b = tf.get_variable(name='b_attn', shape=[hidden_size], initializer=tf.random_normal_initializer(stddev=0.1)) # [attn_dim,]
+
+            v = tf.get_variable(name='u_attn', shape=[hidden_size], initializer=tf.random_normal_initializer(stddev=0.1)) # [attn_dim,]
+
+            # u = tanh(wh)
+            Wh = tf.tensordot(output_rnn, W, axes=1, name='Wh')
+            u = tf.tanh(Wh)                             # [batch_size, seq_len, hidden_size]
+
+            
+            #type 1
+            multihead_u = transpose_for_scores(u, batch_size, num_attention_heads, seq_length, size_per_head)  #(B, N, T, H)
+            multihead_v = tf.reshape(v, [num_attention_heads, size_per_head])       # (N, H)
+            multihead_v_expand = tf.expand_dims(multihead_v, 0)                     # (1, N, H)
+            multihead_v_expand = tf.expand_dims(multihead_v_expand, 2)              # (1, N, 1, H)
+            uv = multihead_u * multihead_v_expand
+            uv = tf.reduce_sum(uv, -1)
+            
+
+            '''
+            #type 2
+            v_expand = tf.expand_dims(v, 0)
+            v_expand = tf.expand_dims(v_expand, 0)
+            uv = u * v_expand
+            uv = tf.reshape(uv, [batch_size, num_attention_heads, seq_length, size_per_head])
+            '''
+
+            print(uv)
+            alphas = tf.nn.softmax(uv - tf.reduce_max(uv, -1, keep_dims=True))
+            multihead_output_rnn = tf.reshape(output_rnn, [batch_size, num_attention_heads, seq_length, -1])
+            multihead_output_attn = multihead_output_rnn*tf.expand_dims(alphas, -1)    # [batch_size, hidden_size]
+            output_attn = tf.reshape(multihead_output_attn, [batch_size, seq_length, -1]) 
+            output_attn = tf.reduce_sum(output_attn, 1)
+
+        return output_attn
 
     def rnn_attn_layer(self):
         # rnn layer
-        self.hidden_size = self.embed_size
-        #lstm_fw_cell = rnn.BasicLSTMCell(self.hidden_size) #forward direction cell
-        #lstm_bw_cell = rnn.BasicLSTMCell(self.hidden_size) #backward direction cell
-        lstm_fw_cell = rnn.GRUCell(self.hidden_size) #forward direction cell
-        lstm_bw_cell = rnn.GRUCell(self.hidden_size) #backward direction cell
+        hidden_size = self.embed_size
+        #lstm_fw_cell = rnn.BasicLSTMCell(hidden_size) #forward direction cell
+        #lstm_bw_cell = rnn.BasicLSTMCell(hidden_size) #backward direction cell
+        lstm_fw_cell = rnn.GRUCell(hidden_size) #forward direction cell
+        lstm_bw_cell = rnn.GRUCell(hidden_size) #backward direction cell
         #lstm_fw_cell = rnn.LayerNormBasicLSTMCell(self.hidden_size) #forward direction cell
         #lstm_bw_cell = rnn.LayerNormBasicLSTMCell(self.hidden_size) #backward direction cell
         if self.dropout_keep_prob is not None:
@@ -153,28 +290,26 @@ class TextRNN(object):
         # bidirectional_dynamic_rnn: input: [batch_size, max_time, input_size]
         #                            output: A tuple (outputs, output_states)
         #                            where:outputs: A tuple (output_fw, output_bw) containing the forward and the backward rnn output `Tensor`.
-        outputs, _ = tf.nn.bidirectional_dynamic_rnn(lstm_fw_cell, lstm_bw_cell, self.embedded_words, self.embedded_words.shape[1].value, dtype=tf.float32)
+        #outputs, _ = tf.nn.bidirectional_dynamic_rnn(lstm_fw_cell, lstm_bw_cell, self.embedded_words, self.input_mask, dtype=tf.float32)
+        outputs, _ = tf.nn.bidirectional_dynamic_rnn(lstm_fw_cell, lstm_bw_cell, self.embedded_words, dtype=tf.float32)
         output_rnn = tf.concat(outputs, axis=2)     #[batch_size, sequence_length, hidden_size*2]
 
         #attention layer
-        attention_dim = self.embed_size
         with tf.name_scope('attention'):
             '''
             self attention:
                 alpha = softmax(v * tanh(wh))
                 c_i = alpha_i * h_i
             '''
-            attn_hidden_size = output_rnn.shape[2].value
 
             # attention mechanism
-            W = tf.Variable(tf.truncated_normal([attn_hidden_size, attention_dim], stddev=0.1), name="W_attn")
-            b = tf.Variable(tf.random_normal([attention_dim], stddev=0.1), name="b_attn")
+            W = tf.Variable(tf.truncated_normal([hidden_size*2, hidden_size], stddev=0.1), name="W_attn")
+            b = tf.Variable(tf.random_normal([hidden_size], stddev=0.1), name="b_attn")
 
-            v = tf.Variable(tf.random_normal([attention_dim], stddev=0.1), name="u_attn") # [attn_dim,]
-            v_expand = tf.expand_dims(v, -1)
+            v = tf.Variable(tf.random_normal([hidden_size], stddev=0.1), name="u_attn") # [attn_dim,]
             
             # u = tanh(wh)
-            u = tf.tanh(tf.tensordot(output_rnn, W, axes=1, name='Wh'))   # [batch_size, seq_len, attention_dim]
+            u = tf.tanh(tf.tensordot(output_rnn, W, axes=1, name='Wh'))   # [batch_size, seq_len, hidden_size]
 
             uv = tf.tensordot(u, v, axes=1, name='uv')           # [batch_size, seq_len]
 
@@ -185,9 +320,9 @@ class TextRNN(object):
             #alphas  type2
             alphas = tf.nn.softmax(uv - tf.reduce_max(uv, -1, keep_dims=True))
             
-            output_attn = tf.reduce_sum(output_rnn*tf.expand_dims(alphas, -1), 1)   # [batch_size, attn_hidden_size]
+            output_attn = tf.reduce_sum(output_rnn*tf.expand_dims(alphas, -1), 1)   # [batch_size, hidden_size]
             
-            print output_attn
+            print(output_attn)
 
         return output_attn
 
@@ -206,15 +341,16 @@ class TextRNN(object):
 
 
 if __name__ == '__main__':
-    textRNN = TextRNN(seq_len=20, num_classes=3, vocab_size=2000, embed_size=200, filter_sizes=[3, 4, 5], num_filters=[100, 100, 100], l2_reg_lambda=0.1)
+    batch_size = 8
+    seq_length = 30
+    dropout_keep_prob = 0.5
+    textRNN = TextRNN(seq_length=seq_length, num_classes=3, vocab_size=2000, embed_size=200, filter_sizes=[3, 4, 5], num_filters=[100, 100, 100], l2_reg_lambda=0.1)
     with tf.Session() as sess:
-        batch_size = 8
-        seq_len = 20
-        dropout_keep_prob = 0.5
         sess.run(tf.global_variables_initializer())
         for i in range(100):
             # input_x should be:[batch_size, num_sentences,self.seq_len]
-            input_x = np.zeros((batch_size, seq_len+i)) #num_sentences
+            #input_x = np.zeros((batch_size, seq_length+i)) #num_sentences, no padding test
+            input_x = np.zeros((batch_size, seq_length)) #num_sentences
             input_x[input_x > 0.5] = 1
             input_x[input_x <= 0.5] = 0
             print(np.shape(input_x))
@@ -225,5 +361,5 @@ if __name__ == '__main__':
                 feed_dict={textRNN.input_x: input_x, textRNN.input_y: input_y,
                            textRNN.dropout_keep_prob: dropout_keep_prob})
             print("loss:", loss, "acc:", acc, "label:", input_y, "prediction:", predict)
-    print 'hello world'
+    print('hello world')
 
