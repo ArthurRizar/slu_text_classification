@@ -129,11 +129,9 @@ class TextRNN(object):
 
         #placeholder
         #self.input_x = tf.placeholder(tf.int32, [None, None], name='input_x')        # shape: batch_size * seq_len
-        #self.input_x = tf.placeholder(tf.int32, [None, seq_length], name='input_x')        # shape: batch_size * seq_len
-        self.input_x = tf.placeholder(tf.int32, [8, seq_length], name='input_x')        # shape: batch_size * seq_len
+        self.input_x = tf.placeholder(tf.int32, [None, seq_length], name='input_x')        # shape: batch_size * seq_len
         #self.input_POS = tf.placeholder(tf.int32, [None, None], name='input_POS')
-        #self.input_POS = tf.placeholder(tf.int32, [None, seq_length], name='input_POS')
-        self.input_POS = tf.placeholder(tf.int32, [8, seq_length], name='input_POS')
+        self.input_POS = tf.placeholder(tf.int32, [None, seq_length], name='input_POS')
         self.input_y = tf.placeholder(tf.float32, [None, num_classes], name='input_y')    # shape: batch_size * num_class
         
         self.dropout_keep_prob = tf.placeholder(tf.float32, name='dropout_keep_prob')          # dropout keep probability  
