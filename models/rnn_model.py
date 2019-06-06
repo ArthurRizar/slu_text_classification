@@ -13,10 +13,9 @@ from tensorflow.python.ops import array_ops
 from tensorflow.contrib import rnn
 from tensorflow.contrib import cudnn_rnn
 
-from setting import *
 from common.layers.embedding import Embedding
 
-def highway(input_, num_outputs, num_layers=1, bias=-2.0, f=tf.nn.relu, scope='Highway'):
+def highway(input_, num_outputs, num_layers=1, bias=-2.0, activation=tf.nn.relu, scope='Highway'):
     '''
     Highway network (cf. http://arxiv.org/abs/1505.00387).
     t = sigmoid(Wy + b)
@@ -26,7 +25,7 @@ def highway(input_, num_outputs, num_layers=1, bias=-2.0, f=tf.nn.relu, scope='H
     size = int(num_outputs)
     with tf.variable_scope(scope):
         for idx in range(num_layers):
-            g = f(tf.contrib.layers.linear(input_, size, scope='highway_lin_%d' % idx))
+            g = activation(tf.contrib.layers.linear(input_, size, scope='highway_lin_%d' % idx))
 
             t = tf.sigmoid(tf.contrib.layers.linear(input_, size, scope='highway_gate_%d' % idx) + bias)
 
@@ -141,7 +140,8 @@ class TextRNN(object):
         l2_loss = tf.constant(0.0)
         
         self.global_step = tf.Variable(0, trainable=False, name="Global_Step")
-        self.decay_steps, self.decay_rate = decay_steps, decay_rate
+        self.decay_steps = decay_steps
+        self.decay_rate = decay_rate
 
         '''
         #embedding layer
@@ -161,25 +161,12 @@ class TextRNN(object):
         #exit()
 
          
-        #self.h_flat = self.rnn_attn_layer()
-        self.h_flat = self.rnn_multihead_attn_layer()
+        #rnn_attn_h = self.rnn_attn_layer()
+        rnn_attn_h = self.rnn_multihead_attn_layer()
 
-        '''
-        #add highway
-        with tf.name_scope('highway'):
-            self.h_highway = highway(self.h_pool_flat, self.h_pool_flat.get_shape()[1], 1, 0, tf.nn.tanh)
-            self.h_pool_flat = self.h_highway
-        '''
-
-        #add dropout 
-        with tf.name_scope('dropout'):
-            #self.h_drop = tf.nn.dropout(self.h_highway, self.dropout_keep_prob)
-            self.h_drop = tf.nn.dropout(self.h_flat, self.dropout_keep_prob)
-
-        features = self.h_drop
+        features = rnn_attn_h
 
         projection_hidden_size = features.shape[-1].value
-
         #final (unnormalized) scores and predictions
         with tf.name_scope('output'):
             W = tf.get_variable(
@@ -192,7 +179,7 @@ class TextRNN(object):
             #l2_loss += tf.nn.l2_loss(W)
             #l2_loss += tf.nn.l2_loss(b)
             #l2_loos = tf.add_n([tf.nn.l2_loss(v) for v in tf.trainable_variables()])
-            self.scores = tf.nn.xw_plus_b(self.h_drop, W, b, name='scores')
+            self.scores = tf.nn.xw_plus_b(features, W, b, name='scores')
             self.predictions = tf.argmax(self.scores, 1, name='predictions')
 
         #calculate mean cross-entropy loss
@@ -211,7 +198,7 @@ class TextRNN(object):
         self.train_op = self.get_train_op()
 
 
-    def rnn_multihead_attn_layer(self):
+    def rnn_multihead_attn_layer(self, output_dropout=True):
         def transpose_for_scores(input_tensor,
                                  batch_size,
                                  num_attention_heads,
@@ -287,7 +274,6 @@ class TextRNN(object):
             uv = tf.reshape(uv, [batch_size, num_attention_heads, seq_length, size_per_head])
             uv = tf.reduce_sum(uv, axis=-1)
             
-
             
 
             if mask is not None:
@@ -305,9 +291,17 @@ class TextRNN(object):
             output_attn = tf.reshape(multihead_output_attn, [batch_size, seq_length, num_attention_heads*rnn_hidden_size_per_head]) 
             output_attn = tf.reduce_sum(output_attn, 1)
 
+        #add highway
+        #with tf.name_scope('highway'):
+        #    output_attn = highway(output_attn, output_attn.get_shape()[1], num_layers=1, bias=0, activation=tf.nn.tanh)
+
+        if output_dropout:
+            output_attn = tf.nn.dropout(output_attn, self.dropout_keep_prob) 
+
+
         return output_attn
 
-    def rnn_attn_layer(self):
+    def rnn_attn_layer(self, use_dropout=True):
         # rnn layer
         hidden_size = self.embed_size
         #lstm_fw_cell = rnn.BasicLSTMCell(hidden_size) #forward direction cell
@@ -352,9 +346,9 @@ class TextRNN(object):
             #alphas  type2
             alphas = tf.nn.softmax(uv - tf.reduce_max(uv, -1, keepdims=True))
             output_attn = tf.reduce_sum(output_rnn*tf.expand_dims(alphas, -1), 1)   # [batch_size, hidden_size]
-            
-            print(output_attn)
 
+        if output_dropout:
+            output_attn = tf.nn.dropout(output_attn, self.dropout_keep_prob)
         return output_attn
 
     def get_train_op(self):
@@ -375,7 +369,7 @@ if __name__ == '__main__':
     batch_size = 8
     seq_length = 30
     dropout_keep_prob = 0.5
-    textRNN = TextRNN(seq_length=seq_length, num_classes=3, vocab_size=2000, embed_size=200, filter_sizes=[3, 4, 5], num_filters=[100, 100, 100], l2_reg_lambda=0.1)
+    textRNN = TextRNN(seq_length=seq_length, num_classes=3, vocab_size=2000, embed_size=200, l2_reg_lambda=0.1)
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
         for i in range(100):
