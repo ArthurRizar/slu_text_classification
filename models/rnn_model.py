@@ -11,8 +11,9 @@ sys.path.append('../')
 
 from tensorflow.python.ops import array_ops
 from tensorflow.contrib import rnn
+from tensorflow.contrib import cudnn_rnn
 
-from global_config import *
+from setting import *
 from common.layers.embedding import Embedding
 
 def highway(input_, num_outputs, num_layers=1, bias=-2.0, f=tf.nn.relu, scope='Highway'):
@@ -105,7 +106,7 @@ class TextRNN(object):
     '''
     A cnn for text classification, following by a convolution, max-pooling, full-connection and softmax
     '''
-    def __init__(self, seq_length, num_classes, vocab_size, embed_size, filter_sizes, num_filters, embedding_table=None, 
+    def __init__(self, seq_length, num_classes, vocab_size, embed_size, POS_onehot_size=0, embedding_table=None, 
             l2_reg_lambda=0.0, decay_steps=1000, decay_rate=0.9, clip_gradients=5.0, learning_rate=1e-4):
         '''
         @brief:
@@ -122,8 +123,6 @@ class TextRNN(object):
         self.embed_size = embed_size
         self.embedding_table = embedding_table
         self.num_classes = num_classes
-        self.num_filters = num_filters
-        self.filter_sizes = filter_sizes
         self.clip_gradients = clip_gradients
         self.learning_rate = learning_rate
 
@@ -144,6 +143,7 @@ class TextRNN(object):
         self.global_step = tf.Variable(0, trainable=False, name="Global_Step")
         self.decay_steps, self.decay_rate = decay_steps, decay_rate
 
+        '''
         #embedding layer
         with tf.device('/cpu:0'):
             if embedding_table is None:
@@ -152,8 +152,14 @@ class TextRNN(object):
                 self.W = tf.Variable(embedding_table, name='W')
     
             self.embedded_words = tf.nn.embedding_lookup(self.W, self.input_x)
+        '''
+        
+        self.embedding_layer = Embedding(vocab_size, embed_size, embedding_table=embedding_table, POS_onehot_size=POS_onehot_size)
+        #self.embedded_words = self.embedding_layer.get_embedded_inputs(self.input_x, self.input_POS)
+        self.embedded_words = self.embedding_layer.get_embedded_inputs(self.input_x)
+        #print(self.embedded_words)
+        #exit()
 
-            self.embedded_word_expand = tf.expand_dims(self.embedded_words, -1)
          
         #self.h_flat = self.rnn_attn_layer()
         self.h_flat = self.rnn_multihead_attn_layer()
@@ -173,7 +179,6 @@ class TextRNN(object):
 
         #final (unnormalized) scores and predictions
         with tf.name_scope('output'):
-            num_filters_total = sum(self.num_filters)
             W = tf.get_variable(
                     'W',
                     shape=[self.embed_size*2, num_classes],
@@ -217,11 +222,29 @@ class TextRNN(object):
         hidden_size = self.embed_size
         lstm_fw_cell = rnn.GRUCell(hidden_size)
         lstm_bw_cell = rnn.GRUCell(hidden_size)
+        #lstm_fw_cell = rnn.LSTMCell(hidden_size)
+        #lstm_bw_cell = rnn.LSTMCell(hidden_size)
+        #lstm_fw_cell = rnn.LayerNormLSTMCell(hidden_size)
+        #lstm_bw_cell = rnn.LayerNormLSTMCell(hidden_size)
+        #lstm_fw_cell = rnn.LayerNormBasicLSTMCell(hidden_size)
+        #lstm_bw_cell = rnn.LayerNormBasicLSTMCell(hidden_size)
+        #lstm_fw_cell = rnn.LSTMBlockFusedCell(hidden_size)
+        #lstm_bw_cell = rnn.LSTMBlockFusedCell(hidden_size)
+        #lstm_fw_cell = cudnn_rnn.CudnnCompatibleLSTMCell(hidden_size)
+        #lstm_bw_cell = cudnn_rnn.CudnnCompatibleLSTMCell(hidden_size)
+        lstm_fw_cell = cudnn_rnn.CudnnCompatibleGRUCell(hidden_size)
+        lstm_bw_cell = cudnn_rnn.CudnnCompatibleGRUCell(hidden_size)
         if self.dropout_keep_prob is not None:
             lstm_fw_cell = rnn.DropoutWrapper(lstm_fw_cell, input_keep_prob=self.dropout_keep_prob, output_keep_prob=self.dropout_keep_prob)
             lstm_bw_cell = rnn.DropoutWrapper(lstm_bw_cell, input_keep_prob=self.dropout_keep_prob, output_keep_prob=self.dropout_keep_prob)
-        
-        #outputs, _ = tf.nn.bidirectional_dynamic_rnn(lstm_fw_cell, lstm_bw_cell, self.embedded_words, self.input_mask, dtype=tf.float32)
+        #print(self.input_x) 
+        input_mask = tf.ones_like(self.input_x)
+        #print(input_mask)
+        #exit()
+
+        truth_length = tf.reduce_sum(input_mask, axis=-1)
+
+        #outputs, _ = tf.nn.bidirectional_dynamic_rnn(lstm_fw_cell, lstm_bw_cell, self.embedded_words, truth_length, dtype=tf.float32)
         outputs, _ = tf.nn.bidirectional_dynamic_rnn(lstm_fw_cell, lstm_bw_cell, self.embedded_words, dtype=tf.float32)
         output_rnn = tf.concat(outputs, axis=2)
 
@@ -231,7 +254,8 @@ class TextRNN(object):
 
 
         attention_size = hidden_size
-        num_attention_heads = 10
+        #attention_size = hidden_size * 2
+        num_attention_heads = 5
         size_per_head = int(hidden_size / num_attention_heads)
         with tf.name_scope('multihead_attention'):
             W = tf.get_variable(name='W_attn', shape=[hidden_size*2, hidden_size], initializer=tf.truncated_normal_initializer(stddev=0.1))
@@ -261,8 +285,15 @@ class TextRNN(object):
             uv = tf.reshape(uv, [batch_size, num_attention_heads, seq_length, size_per_head])
             '''
 
-            print(uv)
+            if input_mask is not None:
+                attention_mask = tf.expand_dims(input_mask, axis=1)
+                adder = (1.0 - tf.cast(attention_mask, tf.float32)) * -10000.0
+                uv += adder
+
+
             alphas = tf.nn.softmax(uv - tf.reduce_max(uv, -1, keep_dims=True))
+            #alphas = tf.nn.softmax(uv)
+
             multihead_output_rnn = tf.reshape(output_rnn, [batch_size, num_attention_heads, seq_length, -1])
             multihead_output_attn = multihead_output_rnn*tf.expand_dims(alphas, -1)    # [batch_size, hidden_size]
             output_attn = tf.reshape(multihead_output_attn, [batch_size, seq_length, -1]) 
