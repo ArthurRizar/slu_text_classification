@@ -176,16 +176,19 @@ class TextRNN(object):
             #self.h_drop = tf.nn.dropout(self.h_highway, self.dropout_keep_prob)
             self.h_drop = tf.nn.dropout(self.h_flat, self.dropout_keep_prob)
 
+        features = self.h_drop
+
+        projection_hidden_size = features.shape[-1].value
 
         #final (unnormalized) scores and predictions
         with tf.name_scope('output'):
             W = tf.get_variable(
                     'W',
-                    shape=[self.embed_size*2, num_classes],
+                    shape=[projection_hidden_size, num_classes],
                     initializer=tf.contrib.layers.variance_scaling_initializer())
                     #initializer=tf.random_normal_initializer(stddev=0.1))
                     #initializer=tf.contrib.layers.xavier_initializer())
-            b = tf.Variable(tf.constant(0.1, shape=[num_classes]), name='b')
+            b = tf.get_variable(initializer=tf.constant(0.1, shape=[num_classes]), name='b')
             #l2_loss += tf.nn.l2_loss(W)
             #l2_loss += tf.nn.l2_loss(b)
             #l2_loos = tf.add_n([tf.nn.l2_loss(v) for v in tf.trainable_variables()])
@@ -237,15 +240,13 @@ class TextRNN(object):
         if self.dropout_keep_prob is not None:
             lstm_fw_cell = rnn.DropoutWrapper(lstm_fw_cell, input_keep_prob=self.dropout_keep_prob, output_keep_prob=self.dropout_keep_prob)
             lstm_bw_cell = rnn.DropoutWrapper(lstm_bw_cell, input_keep_prob=self.dropout_keep_prob, output_keep_prob=self.dropout_keep_prob)
-        #print(self.input_x) 
-        input_mask = tf.ones_like(self.input_x)
-        #print(input_mask)
-        #exit()
 
-        truth_length = tf.reduce_sum(input_mask, axis=-1)
 
-        #outputs, _ = tf.nn.bidirectional_dynamic_rnn(lstm_fw_cell, lstm_bw_cell, self.embedded_words, truth_length, dtype=tf.float32)
-        outputs, _ = tf.nn.bidirectional_dynamic_rnn(lstm_fw_cell, lstm_bw_cell, self.embedded_words, dtype=tf.float32)
+        mask = tf.ones_like(self.input_x)
+        truth_lengths = tf.reduce_sum(mask, axis=-1)
+
+        outputs, _ = tf.nn.bidirectional_dynamic_rnn(lstm_fw_cell, lstm_bw_cell, self.embedded_words, truth_lengths, dtype=tf.float32)
+        #outputs, _ = tf.nn.bidirectional_dynamic_rnn(lstm_fw_cell, lstm_bw_cell, self.embedded_words, dtype=tf.float32)
         output_rnn = tf.concat(outputs, axis=2)
 
         input_shape = get_shape_list(output_rnn, expected_rank=3)
@@ -254,49 +255,54 @@ class TextRNN(object):
 
 
         attention_size = hidden_size
+        #attention_size = 50
         #attention_size = hidden_size * 2
         num_attention_heads = 5
         size_per_head = int(hidden_size / num_attention_heads)
         with tf.name_scope('multihead_attention'):
             W = tf.get_variable(name='W_attn', shape=[hidden_size*2, hidden_size], initializer=tf.truncated_normal_initializer(stddev=0.1))
             b = tf.get_variable(name='b_attn', shape=[hidden_size], initializer=tf.random_normal_initializer(stddev=0.1)) # [attn_dim,]
-
             v = tf.get_variable(name='u_attn', shape=[hidden_size], initializer=tf.random_normal_initializer(stddev=0.1)) # [attn_dim,]
 
             # u = tanh(wh)
             Wh = tf.tensordot(output_rnn, W, axes=1, name='Wh')
             u = tf.tanh(Wh)                             # [batch_size, seq_len, hidden_size]
-
             
+            '''
             #type 1
             multihead_u = transpose_for_scores(u, batch_size, num_attention_heads, seq_length, size_per_head)  #(B, N, T, H)
             multihead_v = tf.reshape(v, [num_attention_heads, size_per_head])       # (N, H)
             multihead_v_expand = tf.expand_dims(multihead_v, 0)                     # (1, N, H)
             multihead_v_expand = tf.expand_dims(multihead_v_expand, 2)              # (1, N, 1, H)
             uv = multihead_u * multihead_v_expand
-            uv = tf.reduce_sum(uv, -1)
+            uv = tf.reduce_sum(uv, axis=-1)
+            '''
             
 
-            '''
+            
             #type 2
             v_expand = tf.expand_dims(v, 0)
             v_expand = tf.expand_dims(v_expand, 0)
             uv = u * v_expand
             uv = tf.reshape(uv, [batch_size, num_attention_heads, seq_length, size_per_head])
-            '''
+            uv = tf.reduce_sum(uv, axis=-1)
+            
 
-            if input_mask is not None:
-                attention_mask = tf.expand_dims(input_mask, axis=1)
+            
+
+            if mask is not None:
+                attention_mask = tf.expand_dims(mask, axis=1)
                 adder = (1.0 - tf.cast(attention_mask, tf.float32)) * -10000.0
                 uv += adder
 
 
-            alphas = tf.nn.softmax(uv - tf.reduce_max(uv, -1, keep_dims=True))
-            #alphas = tf.nn.softmax(uv)
+            #alphas = tf.nn.softmax(uv - tf.reduce_max(uv, -1, keepdims=True))
+            alphas = tf.nn.softmax(uv)
 
-            multihead_output_rnn = tf.reshape(output_rnn, [batch_size, num_attention_heads, seq_length, -1])
+            rnn_hidden_size_per_head = int((hidden_size * 2) / num_attention_heads) 
+            multihead_output_rnn = tf.reshape(output_rnn, [batch_size, num_attention_heads, seq_length, rnn_hidden_size_per_head])
             multihead_output_attn = multihead_output_rnn*tf.expand_dims(alphas, -1)    # [batch_size, hidden_size]
-            output_attn = tf.reshape(multihead_output_attn, [batch_size, seq_length, -1]) 
+            output_attn = tf.reshape(multihead_output_attn, [batch_size, seq_length, num_attention_heads*rnn_hidden_size_per_head]) 
             output_attn = tf.reduce_sum(output_attn, 1)
 
         return output_attn
@@ -330,16 +336,13 @@ class TextRNN(object):
                 alpha = softmax(v * tanh(wh))
                 c_i = alpha_i * h_i
             '''
-
             # attention mechanism
             W = tf.Variable(tf.truncated_normal([hidden_size*2, hidden_size], stddev=0.1), name="W_attn")
             b = tf.Variable(tf.random_normal([hidden_size], stddev=0.1), name="b_attn")
-
             v = tf.Variable(tf.random_normal([hidden_size], stddev=0.1), name="u_attn") # [attn_dim,]
             
             # u = tanh(wh)
             u = tf.tanh(tf.tensordot(output_rnn, W, axes=1, name='Wh'))   # [batch_size, seq_len, hidden_size]
-
             uv = tf.tensordot(u, v, axes=1, name='uv')           # [batch_size, seq_len]
 
             #alphas  type1
@@ -347,8 +350,7 @@ class TextRNN(object):
             #alphas = exps / (tf.reduce_sum(exps, 1))             #softmax, get alpha , [batch_size, seq_len]
             
             #alphas  type2
-            alphas = tf.nn.softmax(uv - tf.reduce_max(uv, -1, keep_dims=True))
-            
+            alphas = tf.nn.softmax(uv - tf.reduce_max(uv, -1, keepdims=True))
             output_attn = tf.reduce_sum(output_rnn*tf.expand_dims(alphas, -1), 1)   # [batch_size, hidden_size]
             
             print(output_attn)
