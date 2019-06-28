@@ -462,7 +462,7 @@ def _truncate_seq_pair(tokens_a, tokens_b, max_length):
 
 
 
-def get_tf_record_iterator(examples, output_dir, label_map, tokenizer, max_seq_length, batch_size, num_steps, name='train', shuffle=False):
+def get_tf_record_iterator(examples, output_dir, label_map, tokenizer, max_seq_length, batch_size, num_steps, num_epochs=1, name='train', shuffle=False):
     input_file = os.path.join(output_dir, "%s.tf_record"%name)
     file_based_convert_examples_to_features(examples, label_map,
                                         max_seq_length, tokenizer, input_file)
@@ -470,7 +470,7 @@ def get_tf_record_iterator(examples, output_dir, label_map, tokenizer, max_seq_l
     tf.logging.info("    Num examples = %d", len(examples))
     tf.logging.info("    Batch size = %d", batch_size)
     tf.logging.info("    Num steps = %d", num_steps)
-    data = read_data_from_tfrecord(input_file, FLAGS.max_seq_length, FLAGS.train_batch_size, True, int(FLAGS.num_train_epochs))
+    data = read_data_from_tfrecord(input_file, FLAGS.max_seq_length, batch_size, True, int(num_epochs))
     iterator = data.make_one_shot_iterator()
     batch_data_op = iterator.get_next() 
     return batch_data_op
@@ -618,6 +618,7 @@ def main(_):
                                                      FLAGS.max_seq_length,
                                                      FLAGS.train_batch_size,
                                                      num_train_steps,
+                                                     FLAGS.num_train_epochs,
                                                      name='train',
                                                      shuffle=True)
 
